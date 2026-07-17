@@ -1,0 +1,7 @@
+{
+  "health": {
+    "ok": "All good",
+    "bad": "Something's wrong",
+    "title": "Server status"
+  }
+}
