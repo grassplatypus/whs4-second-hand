@@ -1,0 +1,57 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+      POSTGRES_DB: app
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # MongoDB: provisioning only. Reserved for chat/realtime (sub-project #4).
+  # No app code connects to it yet — this just puts the container in the
+  # infra spine ahead of time.
+  mongo:
+    image: mongo:7
+    volumes:
+      - mongodata:/data/db
+    expose:
+      - "27017"
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  web:
+    build: { context: ., dockerfile: Dockerfile }
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://app:app@db:5432/app
+    ports: ["3000:3000"]
+    volumes:
+      - media:/app/media
+    depends_on:
+      db: { condition: service_healthy }
+
+  ws:
+    build: { context: ., dockerfile: Dockerfile.ws }
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://app:app@db:5432/app
+      WS_PORT: 4000
+    ports: ["4000:4000"]
+    volumes:
+      - media:/app/media
+    depends_on:
+      db: { condition: service_healthy }
+
+volumes:
+  pgdata:
+  mongodata:
+  media:

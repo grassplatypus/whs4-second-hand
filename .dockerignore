@@ -1,0 +1,13 @@
+node_modules
+.next
+.git
+e2e
+test-results
+playwright-report
+blob-report
+coverage
+.env
+.env.local
+*.tsbuildinfo
+.superpowers
+docs
