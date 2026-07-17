@@ -57,4 +57,13 @@
   - **#3** /api/health가 db down에도 status:"ok" → `db ? "ok" : "degraded"`, E2E 갱신.
   - **#4** 컨테이너 root 실행 → `USER node`.
 - 나머지 Minor(CORS 와일드카드, close() await, 하드코딩 metadata, 쿠키 SameSite 등)는 소유 하위프로젝트(#1/#4)로 이관.
-- fix 2커밋, tsc/18테스트/build/E2E green. **docker 재검증 예정.**
+- fix 2커밋, tsc/18테스트/build/E2E green.
+
+## 7. 최종 fix docker 재검증 → 잠재버그 2개 발견·수정
+
+- 재빌드+up 후 db/mongo/ws healthy인데 **web unhealthy**. `/api/health`는 호스트서 200 정상.
+- **진단:** 컨테이너 내부 `wget http://localhost:3000` → Connection refused.
+  1. **HOSTNAME 함정:** Next standalone 서버는 `process.env.HOSTNAME`에 바인딩. Docker가 HOSTNAME을 컨테이너ID로 자동설정 → 서버가 컨테이너IP에만 바인딩, 내부 localhost refused. **Fix:** Dockerfile run 스테이지 `ENV HOSTNAME=0.0.0.0`.
+  2. **IPv4/IPv6:** HOSTNAME 고쳐도 여전히 refused. 서버는 IPv4 `0.0.0.0:3000` 리슨, 근데 컨테이너 내부 `localhost`→`::1`(IPv6)로 해석 → refused. `127.0.0.1`은 성공. **Fix:** healthcheck URL `localhost`→`127.0.0.1` (web+ws).
+- *교훈:* 헬스체크를 실제로 붙이니 host 포트매핑에 가려져 있던 바인딩 버그가 드러남. #1+ 서비스가 `depends_on: service_healthy` 쓰기 전에 잡아서 다행.
+- **결과:** `docker compose up` → **4컨테이너 전부 healthy**. #0 DoD 완전 충족.
