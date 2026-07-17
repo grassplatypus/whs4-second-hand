@@ -20,6 +20,11 @@ RUN pnpm exec prisma generate && pnpm build
 
 FROM base AS run
 ENV NODE_ENV=production
+# Next standalone server binds to process.env.HOSTNAME; Docker auto-sets HOSTNAME
+# to the container id, so the server would bind to the container IP only and
+# in-container localhost (healthcheck) gets connection-refused. Pin to 0.0.0.0.
+ENV HOSTNAME=0.0.0.0
+ENV PORT=3000
 COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
 COPY --from=build /app/public ./public
