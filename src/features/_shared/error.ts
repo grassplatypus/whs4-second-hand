@@ -14,7 +14,7 @@ export interface ClientError {
   status: number;
 }
 
-export function toClientError(err: unknown, _isProd: boolean): ClientError {
+export function toClientError(err: unknown): ClientError {
   if (err instanceof AppError) {
     return { body: { code: err.code, message: err.message }, status: err.httpStatus };
   }
@@ -33,7 +33,7 @@ export function withErrorHandling(handler: RouteHandler): RouteHandler {
     try {
       return await handler(req, ctx);
     } catch (err) {
-      const { body, status } = toClientError(err, process.env.NODE_ENV === "production");
+      const { body, status } = toClientError(err);
       return Response.json(body, { status });
     }
   };
