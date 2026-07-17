@@ -1,7 +1,7 @@
 import type { PrismaClient } from "@prisma/client";
 
 export interface HealthResult {
-  status: "ok";
+  status: "ok" | "degraded";
   db: boolean;
   ts: string;
 }
@@ -16,5 +16,5 @@ export async function checkHealth(
   } catch {
     dbOk = false;
   }
-  return { status: "ok", db: dbOk, ts: new Date().toISOString() };
+  return { status: dbOk ? "ok" : "degraded", db: dbOk, ts: new Date().toISOString() };
 }

@@ -1,6 +1,7 @@
 import { Server } from "socket.io";
 import { createServer, type Server as HttpServer } from "node:http";
 import { verifyTokenStub } from "./auth-stub";
+import { getEnv } from "@/features/_shared/env";
 
 export function createWsServer() {
   const http: HttpServer = createServer();
@@ -35,8 +36,8 @@ export function createWsServer() {
 
 // 컨테이너 엔트리: 직접 실행 시 기동
 if (process.env.WS_STANDALONE === "1") {
-  const port = Number(process.env.WS_PORT ?? 4000);
+  const env = getEnv();
   createWsServer()
-    .listen(port)
+    .listen(env.WS_PORT)
     .then((boundPort) => console.log(`[ws] listening on ${boundPort}`));
 }

@@ -13,6 +13,7 @@ describe("checkHealth", () => {
   it("reports db false when query throws", async () => {
     const db = { $queryRaw: vi.fn().mockRejectedValue(new Error("down")) };
     const res = await checkHealth(db as any);
+    expect(res.status).toBe("degraded");
     expect(res.db).toBe(false);
   });
 });
