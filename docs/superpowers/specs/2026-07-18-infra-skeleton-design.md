@@ -30,6 +30,7 @@
 ## 기술 스택 (확정)
 
 - Next.js (App Router), TypeScript, Tailwind CSS, shadcn/ui
+- 다국어: next-intl (한글/영어). 기본 언어 = 브라우저 로케일, 사용자 전환 가능. 하드코딩 문자열 금지, 메시지 카탈로그 사용. 한글은 평어체(~요).
 - Node 22, pnpm
 - PostgreSQL 16, Prisma ORM
 - 위치: `lat`/`lng` float 저장 + raw SQL **haversine** 반경 쿼리 (PostGIS 미사용, 명세의 "위경도 인덱싱" 허용 범위). 규모 확장 시 cube/earthdistance 확장으로 GiST 인덱스 도입 여지 남김.
@@ -87,7 +88,7 @@ package.json
 - **Prisma 모델**: `User` 스텁 — `id`, `email`, `lat Float?`, `lng Float?`, `createdAt`. (PostGIS 아님, float만.) 최초 마이그레이션 1개.
 - **`GET /api/health`**: DB `SELECT 1` 확인 → `{ status: "ok", db: true, ts }` 반환. 실패 시 공용 에러 포맷.
 - **WS**: 클라이언트 연결 → `ping` 수신 시 `pong` 응답. JWT 검증 훅은 **스텁**(지금은 아무 토큰이나 통과, 실제 검증은 #1).
-- **UI**: shadcn/ui 초기화. 헬스 페이지가 `/api/health` + WS ping 결과 표시. 라벨은 평어체 — 예: "잘 돌아가고 있어요" / "연결에 문제가 있어요".
+- **UI**: shadcn/ui + next-intl 초기화. 헬스 페이지가 `/api/health` + WS ping 결과 표시. 모든 텍스트는 메시지 카탈로그(ko/en)에서. 한글 라벨 평어체 — 예: "잘 돌아가고 있어요" / "연결에 문제가 있어요". 언어 전환 토글 노출.
 
 ## D. 공용 인프라 (한 번 구축, 전 단계 재사용)
 
@@ -121,6 +122,7 @@ package.json
 5. `pnpm test`(Vitest) + `pnpm test:e2e`(Playwright) 모두 통과
 6. prod 모드에서 강제 에러 발생 시 클라이언트에 `{ code, message }`만 노출, 스택 미노출
 7. 누락 env로 부팅 시 명확한 메시지와 함께 실패
+8. 헬스 페이지 언어 토글로 한글↔영어 전환, 브라우저 로케일이 초기 언어 결정
 
 ## 커밋/브랜치 원칙 (명세 §4 준수)
 
