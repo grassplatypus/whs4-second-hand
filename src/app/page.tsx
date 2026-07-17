@@ -1,10 +1,20 @@
-export default function Home() {
+import { getTranslations } from "next-intl/server";
+import { prisma } from "@/features/_shared/prisma";
+import { checkHealth } from "@/features/_shared/health";
+import { HealthStatus } from "@/features/health/HealthStatus";
+import { LocaleToggle } from "@/features/health/LocaleToggle";
+
+export default async function Home() {
+  const t = await getTranslations("health");
+  const health = await checkHealth(prisma).catch(() => ({ db: false }));
+
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-4 bg-zinc-50 font-sans dark:bg-black">
+    <main className="flex flex-1 flex-col items-center justify-center gap-4 bg-zinc-50 font-sans dark:bg-black">
       <h1 className="text-3xl font-semibold tracking-tight text-black dark:text-zinc-50">
-        중고거래 플랫폼
+        {t("title")}
       </h1>
-      <p className="text-zinc-600 dark:text-zinc-400">툴체인 초기화 완료</p>
-    </div>
+      <HealthStatus db={health.db} />
+      <LocaleToggle />
+    </main>
   );
 }
