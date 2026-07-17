@@ -38,6 +38,12 @@ services:
       - media:/app/media
     depends_on:
       db: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
   ws:
     build: { context: ., dockerfile: Dockerfile.ws }
@@ -50,6 +56,12 @@ services:
       - media:/app/media
     depends_on:
       db: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:4000/socket.io/?EIO=4&transport=polling"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
 volumes:
   pgdata:

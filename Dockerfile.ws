@@ -10,5 +10,7 @@ RUN pnpm install --frozen-lockfile
 COPY . .
 RUN pnpm exec prisma generate
 ENV WS_STANDALONE=1
+ENV TSX_DISABLE_CACHE=1
 EXPOSE 4000
+USER node
 CMD ["pnpm", "exec", "tsx", "src/server/ws/index.ts"]
