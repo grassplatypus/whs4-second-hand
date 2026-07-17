@@ -33,6 +33,9 @@ importers:
       '@playwright/test':
         specifier: ^1.61.1
         version: 1.61.1
+      '@prisma/config':
+        specifier: ^7.8.0
+        version: 7.8.0(magicast@0.5.3)
       '@tailwindcss/postcss':
         specifier: ^4
         version: 4.3.3
