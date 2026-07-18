@@ -14,9 +14,10 @@ PII(이메일·전화) 유출 대비 암호화(AES-256-GCM) + 검색용 blind in
 
 ## #1 분할 (참고)
 
-- **1a 인증 코어** (이 문서): 암호화, User 모델, 가입·중복체크·로그인, JWT 회전 세션, 인증 컨텍스트, PIPA baseline
+- **1a 인증 코어** (이 문서): 암호화, User 모델(OAuth·2FA 확장 가능 형태), 로컬 가입·중복체크·로그인, JWT 회전 세션, 인증 컨텍스트, 재인증 원칙, PIPA baseline
+- **1a-ext 소셜+2FA**: Google/Kakao/Naver OAuth(어댑터 목/실제), 계정 연동/해제, TOTP·이메일 2차 인증 설정·강제
 - **1b 위치+전화인증 어댑터**: Geocoder(주소→좌표)·PhoneVerifier(Octomo) 어댑터(목/실제 토글), 가입 플로우 통합
-- **1c 프로필/마이페이지**: 프로필(나/상대), 소개글·비번변경·탈퇴, 탈퇴 제한 규칙(#3/#5 스텁 인터페이스)
+- **1c 프로필/마이페이지**: 프로필(나/상대), 소개글·비번변경·탈퇴, 탈퇴 제한 규칙(#3/#5 스텁 인터페이스), 민감작업 재인증 강제
 
 ## 확정 결정 (브레인스토밍)
 
@@ -24,30 +25,51 @@ PII(이메일·전화) 유출 대비 암호화(AES-256-GCM) + 검색용 blind in
 - PII 암호화: **AES-256-GCM**(랜덤 IV, authTag, 놀러블별) + **HMAC-SHA256 blind index**(유니크·조회). 암호키·HMAC키 env 분리.
 - 세션: **DB(Postgres) 저장 refresh + 회전 + 재사용 감지**. Redis 미도입(대규모/이미 운용 시 값어치, 첫 도입은 #4 채팅 presence가 적합).
 - 비밀번호: bcrypt(salt 포함).
+- **소셜 로그인 passwordless**: OAuth 가입은 비번 없이 생성(비번 강제 안 함 — 업계 표준·보안·UX). 로컬 비번은 계정설정에서 선택적 추가. 한 User = [로컬 비번 0~1] + [OAuth 신원 0~N] 조합, 연동/해제 가능.
+- **2차 인증**: TOTP(Google OTP 등) 또는 이메일 OTP를 유저별 옵션으로. (설정·강제는 1a-ext)
+- **민감작업 재인증(step-up)**: 개인정보 변경·비번 설정/변경·탈퇴 등은 재인증 필요. 수단은 보유 자격증명에 따라 — 비번 유저=비번 확인, OAuth-only 유저=연동 OAuth 중 하나로 재인증, 2FA 켠 유저=2FA. (강제 구현은 1a-ext/1c, 원칙은 1a 모델·설계에 반영)
+- 모델은 1a에서 확장 가능 형태로 완성(리모델링 방지), OAuth·2FA **구현**은 1a-ext.
 
 ## A. 데이터 모델 (Prisma)
 
 ```prisma
-enum Role { USER SUSPENDED ADMIN }   // RBAC 강제는 #2, 여기선 컬럼만
+enum Role { USER SUSPENDED ADMIN }        // RBAC 강제는 #2, 여기선 컬럼만
+enum OAuthProvider { GOOGLE KAKAO NAVER } // LOCAL 자격증명은 User.passwordHash로 표현
+enum TwoFactorMethod { NONE TOTP EMAIL }
 
 model User {
   id             String    @id @default(cuid())
   nickname       String    @unique
-  passwordHash   String
-  emailCiphertext String                       // AES-256-GCM
-  emailBlindIndex String   @unique             // HMAC-SHA256(정규화 이메일)
-  phoneCiphertext String
-  phoneBlindIndex String                       // 전화(1a 미검증 저장, 검증 1b)
+  passwordHash   String?                        // nullable: OAuth-only 유저는 없음(passwordless)
+  emailCiphertext String                        // AES-256-GCM (OAuth는 제공자 이메일 사용)
+  emailBlindIndex String   @unique              // HMAC-SHA256(정규화 이메일)
+  phoneCiphertext String?                        // nullable: OAuth 가입 시 없을 수 있음
+  phoneBlindIndex String?                        // 전화(있으면 1a 미검증 저장, 검증 1b)
   bio            String?
   role           Role      @default(USER)
   lat            Float?                          // 위치는 1b 지오코딩
   lng            Float?
   address        String?
-  consentedAt    DateTime                        // 개인정보 수집 동의
+  twoFactorMethod TwoFactorMethod @default(NONE) // 2FA 옵션(설정·강제는 1a-ext)
+  totpSecret     String?                          // TOTP 시크릿(AES-GCM 암호화 저장)
+  consentedAt    DateTime                         // 개인정보 수집 동의
   deletedAt      DateTime?                        // soft delete(파기)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   sessions       Session[]
+  identities     AuthIdentity[]
+}
+
+model AuthIdentity {                              // 소셜 신원 연동(구현 1a-ext, 모델은 1a)
+  id             String        @id @default(cuid())
+  userId         String
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider       OAuthProvider
+  providerUserId String                          // 제공자측 고유 id
+  emailAtProvider String?
+  linkedAt       DateTime      @default(now())
+  @@unique([provider, providerUserId])           // 한 소셜 계정은 한 User에만
+  @@index([userId])
 }
 
 model Session {                                  // refresh 회전
@@ -121,10 +143,15 @@ model AuthAuditLog {                             // PIPA 접근로그
 
 ## G. 범위 밖 (1a, 명시)
 
+- **소셜 OAuth 로그인·연동 구현**(Google/Kakao/Naver 어댑터, 콜백, 연동/해제), **2FA 설정·강제**(TOTP·이메일), 민감작업 재인증 강제 → **1a-ext**. (모델·원칙만 1a)
 - 주소→좌표 지오코딩, Daum 우편번호, Octomo 전화검증 → 1b
 - 프로필/마이페이지(소개글·비번변경·탈퇴), 탈퇴 제한 규칙 → 1c
 - RBAC 권한 게이트 강제(SUSPENDED 전면차단 등) → #2
 - 상품/거래 의존 탈퇴 가드(거래중·예약중·판매완료7일) → #3/#5 (1c에서 스텁 인터페이스)
+
+## 참고: 1a 모델은 확장 완성, 구현은 로컬 인증만
+
+1a에서 `AuthIdentity`·`TwoFactor`(User.twoFactorMethod/totpSecret) 테이블·컬럼을 **마이그레이션에 포함**해 이후 1a-ext가 리모델링 없이 얹힘. 단 1a의 **구현·엔드포인트·테스트는 로컬 인증**(이메일+비번)만 다룸. `totpSecret`은 `encryptPII`로 암호화 저장(구현은 1a-ext).
 
 ## H. 테스트
 
