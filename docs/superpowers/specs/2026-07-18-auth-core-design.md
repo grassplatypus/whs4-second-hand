@@ -29,6 +29,7 @@ PII(이메일·전화) 유출 대비 암호화(AES-256-GCM) + 검색용 blind in
 - **2차 인증**: TOTP(Google OTP 등) 또는 이메일 OTP를 유저별 옵션으로. (설정·강제는 1a-ext)
 - **민감작업 재인증(step-up)**: 개인정보 변경·비번 설정/변경·탈퇴 등은 재인증 필요. 수단은 보유 자격증명에 따라 — 비번 유저=비번 확인, OAuth-only 유저=연동 OAuth 중 하나로 재인증, 2FA 켠 유저=2FA. (강제 구현은 1a-ext/1c, 원칙은 1a 모델·설계에 반영)
 - 모델은 1a에서 확장 가능 형태로 완성(리모델링 방지), OAuth·2FA **구현**은 1a-ext.
+- **주소/위치 프라이버시**: 상세주소(건물·호·층) **미수집** — 동/읍/면 **동네 수준만**(수집최소화). 동네주소 문자열은 `regionCiphertext`로 AES-GCM 암호화. 반경검색(#3)은 원본 주소가 아닌 **동네 중심 좌표(lat/lng, 거칠게)** 로 haversine 계산 → 집 특정 불가하면서 반경필터 충족. 정확좌표 별도 저장 안 함(YAGNI). 실제 지오코딩·좌표 산출은 1b.
 
 ## A. 데이터 모델 (Prisma)
 
@@ -47,9 +48,9 @@ model User {
   phoneBlindIndex String?                        // 전화(있으면 1a 미검증 저장, 검증 1b)
   bio            String?
   role           Role      @default(USER)
-  lat            Float?                          // 위치는 1b 지오코딩
-  lng            Float?
-  address        String?
+  lat            Float?                          // 동네 중심 좌표(거칠게), 반경검색용. 지오코딩은 1b
+  lng            Float?                          // haversine 검색·인덱싱 대상(#3)
+  regionCiphertext String?                       // 동네주소(동/읍/면 수준)만, AES-GCM 암호화. 상세주소 미수집
   twoFactorMethod TwoFactorMethod @default(NONE) // 2FA 옵션(설정·강제는 1a-ext)
   totpSecret     String?                          // TOTP 시크릿(AES-GCM 암호화 저장)
   consentedAt    DateTime                         // 개인정보 수집 동의
@@ -137,7 +138,7 @@ model AuthAuditLog {                             // PIPA 접근로그
 **방침:** demo·소규모는 PIPA 무거운 의무의 **규모 문턱**(유출신고 1천명, 내역통지 100만명·민감 5만명, 강화 안전조치 대규모) **전부 미달**. 문턱 없는 코드레벨 기본만 비례적으로 구현. 나머지는 실런칭 이관.
 
 **Keep (1a에서 구현 — 싸고 유출 시 실효):**
-- **수집최소화**: 명세 필수 필드만(이메일·전화·닉네임·비번·주소·동의). 그 외 수집 안 함.
+- **수집최소화**: 명세 필수 필드만(이메일·전화·닉네임·비번·동네주소·동의). 상세주소 미수집, 동/읍/면 수준까지만. 그 외 수집 안 함.
 - **동의**: 가입 시 필수 동의 캡처(`consentedAt`), 미동의 가입 차단.
 - **암호화**: 이메일·전화 AES-GCM at-rest, 비번 bcrypt(일방향), 키 분리. (안전성 확보조치 고시 최소요건 충족)
 - **접근로그**: 인증 이벤트 `AuthAuditLog` 기록(userId·event·ip·ua). 평문 PII 미기록.
