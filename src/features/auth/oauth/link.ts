@@ -110,9 +110,29 @@ export async function unlinkIdentity(
 
   const credentials = (user.passwordHash ? 1 : 0) + user.identities.length;
   if (credentials <= 1) {
+    // 빠른 경로: 대부분의 경우 이 시점에서 바로 걸러진다.
     throw new AppError("LAST_CREDENTIAL", "마지막 로그인 수단이라 해제할 수 없어요. 비밀번호를 먼저 설정해 주세요.", 409);
   }
 
-  await db.authIdentity.delete({ where: { id: target.id } });
+  // 가드는 delete 자체의 WHERE 절에 인코딩해 DB에서 원자적으로 강제한다 (TOCTOU 방지).
+  // 삭제 후에도 비밀번호가 있거나 다른 identity가 남아있을 때만 실제로 삭제된다.
+  // 잔여 경합: READ COMMITTED 하에서 서로 다른 provider에 대한 완전 동시 unlink 두 건은
+  // 각 문장의 관계 서브쿼리가 상대방 커밋 이전 상태를 볼 수 있어 이 가드를 통과할 수 있다.
+  // 이를 완전히 막으려면 SERIALIZABLE + 행 잠금(`$transaction`)이 필요하며 `AuthDb`는 이를
+  // 노출하지 않는다. 알려진 잔여 이슈로 트래킹한다.
+  const removed = await db.authIdentity.deleteMany({
+    where: {
+      id: target.id,
+      user: {
+        OR: [
+          { passwordHash: { not: null } },
+          { identities: { some: { id: { not: target.id } } } },
+        ],
+      },
+    },
+  });
+  if (removed.count === 0) {
+    throw new AppError("LAST_CREDENTIAL", "마지막 로그인 수단이라 해제할 수 없어요. 비밀번호를 먼저 설정해 주세요.", 409);
+  }
   await logAuthEvent(db, AUTH_EVENTS.OAUTH_UNLINK, userId, meta);
 }

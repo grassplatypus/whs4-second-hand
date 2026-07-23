@@ -13,6 +13,7 @@ function baseDb(over: Record<string, unknown> = {}) {
       findUnique: vi.fn().mockResolvedValue(null),
       create: vi.fn().mockResolvedValue({ id: "i1" }),
       delete: vi.fn().mockResolvedValue({}),
+      deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
     user: {
       findFirst: vi.fn().mockResolvedValue(null),
@@ -62,6 +63,30 @@ describe("loginOrRegisterWithOAuth", () => {
     const db = baseDb({ authIdentity: { findUnique: vi.fn().mockResolvedValue({ userId: "u1", user: { id: "u1", deletedAt: new Date() } }) } });
     await expect(loginOrRegisterWithOAuth(db, "GOOGLE", info, meta)).rejects.toMatchObject({ code: "AUTH_FAILED" });
   });
+
+  it("maps a P2002 race on user.create to OAUTH_EMAIL_EXISTS", async () => {
+    const create = vi.fn().mockRejectedValue({ code: "P2002" });
+    const db = baseDb({
+      user: { findFirst: vi.fn().mockResolvedValue(null), findUnique: vi.fn().mockResolvedValue(null), create },
+    });
+    await expect(loginOrRegisterWithOAuth(db, "GOOGLE", info, meta)).rejects.toMatchObject({ code: "OAUTH_EMAIL_EXISTS", httpStatus: 409 });
+  });
+
+  it("propagates a non-P2002 error from user.create unchanged", async () => {
+    const create = vi.fn().mockRejectedValue({ code: "P2003" });
+    const db = baseDb({
+      user: { findFirst: vi.fn().mockResolvedValue(null), findUnique: vi.fn().mockResolvedValue(null), create },
+    });
+    await expect(loginOrRegisterWithOAuth(db, "GOOGLE", info, meta)).rejects.toMatchObject({ code: "P2003" });
+  });
+
+  it("propagates a plain Error from user.create unchanged", async () => {
+    const create = vi.fn().mockRejectedValue(new Error("boom"));
+    const db = baseDb({
+      user: { findFirst: vi.fn().mockResolvedValue(null), findUnique: vi.fn().mockResolvedValue(null), create },
+    });
+    await expect(loginOrRegisterWithOAuth(db, "GOOGLE", info, meta)).rejects.toThrow("boom");
+  });
 });
 
 describe("linkIdentity", () => {
@@ -74,40 +99,74 @@ describe("linkIdentity", () => {
 
   it("is idempotent when the identity is already linked to this user", async () => {
     const create = vi.fn();
-    const db = baseDb({ authIdentity: { findUnique: vi.fn().mockResolvedValue({ userId: "u1" }), create } });
+    const authAuditLog = { create: vi.fn().mockResolvedValue({}) };
+    const db = baseDb({ authIdentity: { findUnique: vi.fn().mockResolvedValue({ userId: "u1" }), create }, authAuditLog });
     await linkIdentity(db, "u1", "KAKAO", { providerUserId: "kakao-x", email: "k@example.com" }, meta);
     expect(create).not.toHaveBeenCalled();
+    expect(authAuditLog.create).not.toHaveBeenCalled();
   });
 
   it("rejects an identity owned by another user", async () => {
     const db = baseDb({ authIdentity: { findUnique: vi.fn().mockResolvedValue({ userId: "other" }), create: vi.fn() } });
     await expect(linkIdentity(db, "u1", "KAKAO", { providerUserId: "kakao-x", email: "k@example.com" }, meta)).rejects.toMatchObject({ code: "IDENTITY_TAKEN" });
   });
+
+  it("maps a P2002 race on authIdentity.create to IDENTITY_TAKEN", async () => {
+    const create = vi.fn().mockRejectedValue({ code: "P2002" });
+    const db = baseDb({ authIdentity: { findUnique: vi.fn().mockResolvedValue(null), create } });
+    await expect(linkIdentity(db, "u1", "KAKAO", { providerUserId: "kakao-x", email: "k@example.com" }, meta)).rejects.toMatchObject({ code: "IDENTITY_TAKEN", httpStatus: 409 });
+  });
+
+  it("propagates a non-P2002 error from authIdentity.create unchanged", async () => {
+    const create = vi.fn().mockRejectedValue(new Error("boom"));
+    const db = baseDb({ authIdentity: { findUnique: vi.fn().mockResolvedValue(null), create } });
+    await expect(linkIdentity(db, "u1", "KAKAO", { providerUserId: "kakao-x", email: "k@example.com" }, meta)).rejects.toThrow("boom");
+  });
 });
 
 describe("unlinkIdentity", () => {
-  it("unlinks when other credentials remain", async () => {
-    const del = vi.fn().mockResolvedValue({});
+  it("unlinks when other credentials remain, using a guard-enforced deleteMany", async () => {
+    const deleteMany = vi.fn().mockResolvedValue({ count: 1 });
     const db = baseDb({
       user: { findUnique: vi.fn().mockResolvedValue({ passwordHash: "$2b$x", identities: [{ id: "i1", provider: "KAKAO" }] }), findFirst: vi.fn(), create: vi.fn() },
-      authIdentity: { findUnique: vi.fn(), create: vi.fn(), delete: del },
+      authIdentity: { findUnique: vi.fn(), create: vi.fn(), delete: vi.fn(), deleteMany },
     });
     await unlinkIdentity(db, "u1", "KAKAO", meta);
-    expect(del).toHaveBeenCalledWith({ where: { id: "i1" } });
+    expect(deleteMany).toHaveBeenCalledTimes(1);
+    const where = deleteMany.mock.calls[0][0].where;
+    expect(where.id).toBe("i1");
+    expect(where.user.OR).toEqual(
+      expect.arrayContaining([
+        { passwordHash: { not: null } },
+        { identities: { some: { id: { not: "i1" } } } },
+      ]),
+    );
   });
 
-  it("refuses to unlink the last credential", async () => {
+  it("refuses to unlink the last credential (pre-read fast path)", async () => {
     const db = baseDb({
       user: { findUnique: vi.fn().mockResolvedValue({ passwordHash: null, identities: [{ id: "i1", provider: "KAKAO" }] }), findFirst: vi.fn(), create: vi.fn() },
     });
     await expect(unlinkIdentity(db, "u1", "KAKAO", meta)).rejects.toMatchObject({ code: "LAST_CREDENTIAL", httpStatus: 409 });
   });
 
-  it("404s when the provider is not linked", async () => {
+  it("refuses to unlink when deleteMany reports count 0 (guard blocked at the DB)", async () => {
+    const deleteMany = vi.fn().mockResolvedValue({ count: 0 });
     const db = baseDb({
       user: { findUnique: vi.fn().mockResolvedValue({ passwordHash: "$2b$x", identities: [{ id: "i1", provider: "KAKAO" }] }), findFirst: vi.fn(), create: vi.fn() },
+      authIdentity: { findUnique: vi.fn(), create: vi.fn(), delete: vi.fn(), deleteMany },
+    });
+    await expect(unlinkIdentity(db, "u1", "KAKAO", meta)).rejects.toMatchObject({ code: "LAST_CREDENTIAL", httpStatus: 409 });
+  });
+
+  it("404s when the provider is not linked (deleteMany not reached)", async () => {
+    const deleteMany = vi.fn().mockResolvedValue({ count: 1 });
+    const db = baseDb({
+      user: { findUnique: vi.fn().mockResolvedValue({ passwordHash: "$2b$x", identities: [{ id: "i1", provider: "KAKAO" }] }), findFirst: vi.fn(), create: vi.fn() },
+      authIdentity: { findUnique: vi.fn(), create: vi.fn(), delete: vi.fn(), deleteMany },
     });
     await expect(unlinkIdentity(db, "u1", "NAVER", meta)).rejects.toMatchObject({ code: "IDENTITY_NOT_FOUND", httpStatus: 404 });
+    expect(deleteMany).not.toHaveBeenCalled();
   });
 });
 
