@@ -6,10 +6,84 @@ datasource db {
   provider = "postgresql"
 }
 
+enum Role {
+  USER
+  SUSPENDED
+  ADMIN
+}
+
+enum OAuthProvider {
+  GOOGLE
+  KAKAO
+  NAVER
+}
+
+enum TwoFactorMethod {
+  NONE
+  TOTP
+  EMAIL
+}
+
 model User {
+  id               String          @id @default(cuid())
+  nickname         String          @unique
+  passwordHash     String? // OAuth-only 유저는 비번 없음(passwordless)
+  emailCiphertext  String // AES-256-GCM
+  emailBlindIndex  String          @unique // HMAC-SHA256(정규화 이메일)
+  phoneCiphertext  String?
+  phoneBlindIndex  String?
+  bio              String?
+  role             Role            @default(USER)
+  lat              Float? // 동네 중심 좌표(거칠게). 지오코딩은 1b
+  lng              Float?
+  regionCiphertext String? // 동/읍/면 수준 주소만. 상세주소 미수집
+  twoFactorMethod  TwoFactorMethod @default(NONE) // 설정·강제는 1a-ext
+  totpSecret       String? // AES-GCM 암호화 저장. 구현은 1a-ext
+  consentedAt      DateTime
+  deletedAt        DateTime? // soft delete(파기)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  sessions         Session[]
+  identities       AuthIdentity[]
+
+  @@index([phoneBlindIndex])
+}
+
+model AuthIdentity {
+  id              String        @id @default(cuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider        OAuthProvider
+  providerUserId  String
+  emailAtProvider String?
+  linkedAt        DateTime      @default(now())
+
+  @@unique([provider, providerUserId])
+  @@index([userId])
+}
+
+model Session {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  familyId     String // 회전 체인(재사용 감지 단위)
+  tokenHash    String    @unique // refresh 토큰 SHA-256
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  replacedById String?
+  createdAt    DateTime  @default(now())
+
+  @@index([userId])
+  @@index([familyId])
+}
+
+model AuthAuditLog {
   id        String   @id @default(cuid())
-  email     String   @unique
-  lat       Float?
-  lng       Float?
+  userId    String?
+  event     String // REGISTER|LOGIN|LOGIN_FAIL|REFRESH|REUSE_DETECTED|LOGOUT
+  ip        String?
+  ua        String?
   createdAt DateTime @default(now())
+
+  @@index([userId])
 }
