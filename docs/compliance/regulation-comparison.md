@@ -45,3 +45,18 @@
 - **Keep(구현):** PII AES-GCM 암호화, 비번 bcrypt, 수집최소화, 동의 캡처, soft delete 파기, 인증 감사로그.
 - **Defer(실런칭 이관):** 처리방침 법무문서, CPO 지정, 유출통지·신고 절차, 내역통지, 접속기록 법정보관, GDPR/CCPA.
 - 준수 리뷰 = 위 Keep 대조 + PII 로그누출·에러마스킹 점검(경량).
+
+## 4. #1a 이행 현황 (2026-07-23)
+
+| Keep 항목 | 구현 위치 | 상태 |
+|---|---|---|
+| 수집 최소화 | `src/features/auth/schema.ts` (이메일·전화·닉네임·비번·동의만) | ✅ |
+| 동의 캡처 | `User.consentedAt`, `registerSchema.consent = literal(true)` | ✅ |
+| PII 암호화(AES-GCM) | `src/features/_shared/crypto.ts` | ✅ |
+| 비번 일방향 | `src/features/auth/password.ts` (bcrypt) | ✅ |
+| 키 분리 | `AES_KEY` / `BLIND_INDEX_KEY` env 주입 | ✅ |
+| 접근로그 | `AuthAuditLog` + `src/features/auth/audit.ts` | ✅ |
+| 파기(soft delete) | `User.deletedAt` 컬럼 + 로그인 차단. 탈퇴 플로우는 1c | 부분(설계대로) |
+| 상세주소 미수집 | 스키마에 동네 컬럼(`regionCiphertext`)만, 가입 폼에 주소 입력 없음 | ✅ |
+
+Defer 항목(처리방침·CPO·유출통지·내역통지·법정보관·GDPR/CCPA)은 실런칭 전 이관 상태 유지.
