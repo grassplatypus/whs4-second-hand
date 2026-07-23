@@ -4,8 +4,12 @@ const schema = z.object({
   DATABASE_URL: z.string().url().or(z.string().startsWith("postgresql://")),
   JWT_ACCESS_SECRET: z.string().min(16),
   JWT_REFRESH_SECRET: z.string().min(16),
-  AES_KEY: z.string().length(32),
-  BLIND_INDEX_KEY: z.string().min(32),
+  AES_KEY: z.string().refine((val) => Buffer.byteLength(val, "utf8") === 32, {
+    message: "must be exactly 32 bytes in UTF-8",
+  }),
+  BLIND_INDEX_KEY: z.string().refine((val) => Buffer.byteLength(val, "utf8") >= 32, {
+    message: "must be at least 32 bytes in UTF-8",
+  }),
   WS_PORT: z.coerce.number().int().positive(),
   NODE_ENV: z.enum(["development", "production", "test"]),
 });
