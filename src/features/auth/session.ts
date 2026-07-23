@@ -118,3 +118,20 @@ export async function revokeSession(db: AuthDb, refreshToken: string | null, met
   await db.session.update({ where: { id: current.id }, data: { revokedAt: new Date() } });
   await logAuthEvent(db, AUTH_EVENTS.LOGOUT, current.userId, meta);
 }
+
+/**
+ * refresh 쿠키로 현재 유저를 회전 없이 조회한다(OAuth 연동 등 로그인 상태 확인용).
+ * 유효하지 않은 세션이면 null.
+ */
+export async function currentUserFromRefresh(
+  db: AuthDb,
+  refreshToken: string | null,
+): Promise<{ userId: string } | null> {
+  if (!refreshToken) return null;
+  const session = await db.session.findUnique({
+    where: { tokenHash: hashRefreshToken(refreshToken) },
+    select: { userId: true, expiresAt: true, revokedAt: true, user: { select: { deletedAt: true } } },
+  });
+  if (!session || session.revokedAt || session.expiresAt.getTime() <= Date.now() || session.user.deletedAt) return null;
+  return { userId: session.userId };
+}

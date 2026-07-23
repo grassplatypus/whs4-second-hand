@@ -22,6 +22,21 @@
     "failed": "Check your email or password",
     "emailTaken": "That email is already registered",
     "nicknameTaken": "That nickname is taken",
-    "signupDone": "Account created. Please log in"
+    "signupDone": "Account created. Please log in",
+    "oauth": {
+      "google": "Continue with Google",
+      "kakao": "Continue with Kakao",
+      "naver": "Continue with Naver",
+      "or": "or",
+      "connections": "Connected accounts",
+      "connected": "Connected",
+      "link": "Connect",
+      "unlink": "Disconnect",
+      "emailExists": "That email is already registered. Log in and connect it here",
+      "identityTaken": "That social account is linked to another account",
+      "lastCredential": "This is your last sign-in method and can't be removed",
+      "failed": "Social login failed. Please try again",
+      "loginRequired": "Please log in first"
+    }
   }
 }

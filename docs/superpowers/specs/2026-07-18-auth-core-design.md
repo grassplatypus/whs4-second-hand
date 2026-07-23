@@ -225,3 +225,4 @@ model AuthAuditLog {                             // PIPA 접근로그
 8. **쿠키 `Secure` 조건부.** §C(세션/JWT)는 refresh 쿠키가 "무조건 Secure"라고 적었지만, 실제
    구현(`cookies.ts`)은 `NODE_ENV === "production"`일 때만 `Secure`를 붙인다(dev는 http라 Secure면
    쿠키 자체가 브라우저에서 버려지기 때문). 설계 문서 대비 구현 편차이며, 의도적이다.
+- OAuth 이메일 충돌 시 `OAUTH_EMAIL_EXISTS` 안내는 계정 존재를 드러낸다(OAuth 플로우 본질 — 그 provider 이메일 통제 증명). 자동 연동을 막기 위한 의도적 노출. (ext-1)
