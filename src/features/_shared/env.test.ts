@@ -4,7 +4,6 @@ import { parseEnv } from "./env";
 const valid = {
   DATABASE_URL: "postgresql://u:p@db:5432/app",
   JWT_ACCESS_SECRET: "a".repeat(32),
-  JWT_REFRESH_SECRET: "b".repeat(32),
   AES_KEY: "c".repeat(32),
   BLIND_INDEX_KEY: "d".repeat(32),
   WS_PORT: "4000",
@@ -40,11 +39,8 @@ describe("parseEnv", () => {
     expect(env.AES_KEY).toBe(asciiKey);
   });
 
-  it("rejects BLIND_INDEX_KEY with 32 chars but >32 bytes (Korean syllables)", () => {
-    // 32 Korean syllables = 96 bytes, but we need at least 32 bytes
-    // For BLIND_INDEX_KEY, 32 Korean chars (96 bytes) should pass
-    // But if we have fewer Korean chars that result in <32 bytes, it should fail
-    // Let's use 10 Korean syllables = 30 bytes, which is < 32 bytes
+  it("rejects BLIND_INDEX_KEY under 32 bytes (Korean syllables)", () => {
+    // 10 Korean syllables = 30 bytes (3 bytes/syllable in UTF-8), which is < the 32-byte minimum.
     const koreanKey = "가".repeat(10); // 30 bytes
     expect(() => parseEnv({ ...valid, BLIND_INDEX_KEY: koreanKey })).toThrow();
   });
