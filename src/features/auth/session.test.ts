@@ -47,7 +47,7 @@ function rotationDb(session: unknown) {
       findUnique: vi.fn().mockResolvedValue(session),
       create: vi.fn().mockResolvedValue({ id: "s2" }),
       update: vi.fn().mockResolvedValue({}),
-      updateMany: vi.fn().mockResolvedValue({ count: 2 }),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
     user: { findFirst: vi.fn().mockResolvedValue({ id: "u1", role: "USER", deletedAt: null }) },
     authAuditLog: { create: vi.fn().mockResolvedValue({}) },
@@ -71,10 +71,36 @@ describe("rotateSession", () => {
     expect(await verifyAccessToken(result.accessToken)).toEqual({ userId: "u1", role: "USER" });
     expect(result.refreshToken).not.toBe("old-token");
 
-    const update = (db.session.update as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(update.where).toEqual({ id: "s1" });
-    expect(update.data.revokedAt).toBeInstanceOf(Date);
-    expect(typeof update.data.replacedById).toBe("string");
+    // 원자적 claim: revokedAt: null 조건부로 옛 세션을 선점한다
+    const claim = (db.session.updateMany as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(claim.where).toEqual({ id: "s1", revokedAt: null });
+    expect(claim.data.revokedAt).toBeInstanceOf(Date);
+
+    // claim 성공 후에만 부모→자식 back-reference를 남긴다
+    const link = (db.session.update as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(link.where).toEqual({ id: "s1" });
+    expect(typeof link.data.replacedById).toBe("string");
+    expect(link.data.replacedById).toBe("s2");
+  });
+
+  it("claims the old session before creating the child session (no fork window)", async () => {
+    const db = rotationDb(liveSession);
+    await rotateSession(db, "old-token", noMeta);
+
+    const claimOrder = (db.session.updateMany as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
+    const createOrder = (db.session.create as ReturnType<typeof vi.fn>).mock.invocationCallOrder[0];
+    expect(claimOrder).toBeLessThan(createOrder);
+  });
+
+  it("rejects with plain AUTH_FAILED when the claim loses a concurrent race, without forking a sibling", async () => {
+    const db = rotationDb(liveSession);
+    (db.session.updateMany as ReturnType<typeof vi.fn>).mockResolvedValue({ count: 0 });
+
+    await expect(rotateSession(db, "old-token", noMeta)).rejects.toMatchObject({ code: "AUTH_FAILED", httpStatus: 401 });
+
+    // 패배한 요청은 형제 세션을 만들지 않는다 — fork 방지의 핵심 단언
+    expect(db.session.create as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
+    expect(db.session.update as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
   });
 
   it("keeps the rotation family across rotations", async () => {
@@ -96,8 +122,9 @@ describe("rotateSession", () => {
 
     await expect(rotateSession(db, "old-token", noMeta)).rejects.toMatchObject({ code: "AUTH_FAILED", httpStatus: 401 });
 
+    // family 전체(살아있는 형제 세션 포함)를 폐기해야 한다: familyId + revokedAt: null 서브필터 둘 다 확인
     const updateMany = (db.session.updateMany as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    expect(updateMany.where.familyId).toBe("f1");
+    expect(updateMany.where).toEqual({ familyId: "f1", revokedAt: null });
     expect(updateMany.data.revokedAt).toBeInstanceOf(Date);
     expect((db.authAuditLog.create as ReturnType<typeof vi.fn>).mock.calls[0][0].data.event).toBe("REUSE_DETECTED");
   });
@@ -136,5 +163,20 @@ describe("revokeSession", () => {
     const db = rotationDb(null);
     await expect(revokeSession(db, null, noMeta)).resolves.toBeUndefined();
     expect(db.session.update as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
+    expect(db.authAuditLog.create as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
+  });
+
+  it("is a no-op for an unknown token", async () => {
+    const db = rotationDb(null);
+    await expect(revokeSession(db, "nope", noMeta)).resolves.toBeUndefined();
+    expect(db.session.update as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
+    expect(db.authAuditLog.create as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
+  });
+
+  it("is a no-op for an already-revoked session (idempotent logout)", async () => {
+    const db = rotationDb({ ...liveSession, revokedAt: new Date() });
+    await expect(revokeSession(db, "old-token", noMeta)).resolves.toBeUndefined();
+    expect(db.session.update as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
+    expect(db.authAuditLog.create as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
   });
 });

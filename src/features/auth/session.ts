@@ -74,6 +74,14 @@ export async function rotateSession(
 
   if (current.expiresAt.getTime() <= Date.now() || current.user.deletedAt) throw authFailed();
 
+  // 원자적 claim(CAS): revokedAt: null 조건이 걸린 상태에서만 갱신된다.
+  // 동시에 같은 토큰으로 들어온 요청 중 단 하나만 count: 1을 받는다 — 나머지는 여기서 조용히 패배한다.
+  const claim = await db.session.updateMany({
+    where: { id: current.id, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+  if (claim.count === 0) throw authFailed();
+
   const nextToken = generateRefreshToken();
   const expiresAt = refreshExpiry(); // sliding: 회전할 때마다 만료 연장
   const next = await db.session.create({
@@ -88,7 +96,7 @@ export async function rotateSession(
 
   await db.session.update({
     where: { id: current.id },
-    data: { revokedAt: new Date(), replacedById: next.id },
+    data: { replacedById: next.id },
   });
 
   const accessToken = await signAccessToken({ userId: current.userId, role: current.user.role });
