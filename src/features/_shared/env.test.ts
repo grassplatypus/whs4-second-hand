@@ -6,6 +6,7 @@ const valid = {
   JWT_ACCESS_SECRET: "a".repeat(32),
   JWT_REFRESH_SECRET: "b".repeat(32),
   AES_KEY: "c".repeat(32),
+  BLIND_INDEX_KEY: "d".repeat(32),
   WS_PORT: "4000",
   NODE_ENV: "test",
 };

@@ -5,6 +5,7 @@ const schema = z.object({
   JWT_ACCESS_SECRET: z.string().min(16),
   JWT_REFRESH_SECRET: z.string().min(16),
   AES_KEY: z.string().length(32),
+  BLIND_INDEX_KEY: z.string().min(32),
   WS_PORT: z.coerce.number().int().positive(),
   NODE_ENV: z.enum(["development", "production", "test"]),
 });
