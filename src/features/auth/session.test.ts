@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 import { describe, it, expect, vi } from "vitest";
-import { createSession, rotateSession, revokeSession } from "./session";
+import { createSession, rotateSession, revokeSession, currentUserFromRefresh } from "./session";
 import { hashRefreshToken, verifyAccessToken } from "./tokens";
 import type { AuthDb } from "./db";
 
@@ -178,5 +178,28 @@ describe("revokeSession", () => {
     await expect(revokeSession(db, "old-token", noMeta)).resolves.toBeUndefined();
     expect(db.session.update as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
     expect(db.authAuditLog.create as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
+  });
+});
+
+describe("currentUserFromRefresh", () => {
+  const future = new Date(Date.now() + 86_400_000);
+  function db(session: unknown) {
+    return { session: { findUnique: vi.fn().mockResolvedValue(session) } } as unknown as AuthDb;
+  }
+
+  it("returns the userId for a live session", async () => {
+    const d = db({ userId: "u1", expiresAt: future, revokedAt: null, user: { deletedAt: null } });
+    expect(await currentUserFromRefresh(d, "tok")).toEqual({ userId: "u1" });
+  });
+
+  it("returns null without a cookie", async () => {
+    expect(await currentUserFromRefresh(db(null), null)).toBeNull();
+  });
+
+  it("returns null for revoked / expired / deleted / unknown", async () => {
+    expect(await currentUserFromRefresh(db(null), "tok")).toBeNull();
+    expect(await currentUserFromRefresh(db({ userId: "u1", expiresAt: future, revokedAt: new Date(), user: { deletedAt: null } }), "tok")).toBeNull();
+    expect(await currentUserFromRefresh(db({ userId: "u1", expiresAt: new Date(Date.now() - 1000), revokedAt: null, user: { deletedAt: null } }), "tok")).toBeNull();
+    expect(await currentUserFromRefresh(db({ userId: "u1", expiresAt: future, revokedAt: null, user: { deletedAt: new Date() } }), "tok")).toBeNull();
   });
 });
