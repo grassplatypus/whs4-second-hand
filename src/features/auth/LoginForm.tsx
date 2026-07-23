@@ -11,19 +11,28 @@ export function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
+    if (submitting) return; // 이중 제출 방지
 
-    const res = await fetch("/api/auth/login", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ email, password }),
-    });
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
 
-    if (!res.ok) return setError(t("failed")); // 실패 사유는 구분해 보여주지 않는다
-    router.push("/");
+      if (!res.ok) return setError(t("failed")); // 실패 사유는 구분해 보여주지 않는다
+      router.push("/");
+    } catch {
+      setError(t("failed"));
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -50,7 +59,7 @@ export function LoginForm() {
 
       {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
 
-      <button type="submit" className="rounded bg-black px-3 py-2 text-white">
+      <button type="submit" disabled={submitting} className="rounded bg-black px-3 py-2 text-white disabled:opacity-50">
         {t("submitLogin")}
       </button>
     </form>

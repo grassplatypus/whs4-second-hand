@@ -61,6 +61,46 @@ test("register → login → authed call → logout", async ({ request }) => {
   expect(afterLogout.status()).toBe(401);
 });
 
+test("reused refresh token triggers reuse detection and kills the whole family", async ({ request }) => {
+  const id = unique();
+  const email = `${id}@example.com`;
+
+  await request.post("/api/auth/register", {
+    data: {
+      email,
+      phone: "010-1234-5678",
+      nickname: id,
+      password: "hunter2hunter2",
+      passwordConfirm: "hunter2hunter2",
+      consent: true,
+    },
+  });
+
+  await request.post("/api/auth/login", { data: { email, password: "hunter2hunter2" } });
+
+  // 회전 전 refresh 쿠키(구 토큰)를 캡처해 둔다 — request 컨텍스트는 로그인 응답의
+  // set-cookie를 자동 저장하므로, 이후 한 번 회전되고 나면 컨텍스트의 쿠키는 새 토큰으로
+  // 바뀐다. 재사용 감지를 트리거하려면 이 구 토큰을 따로 들고 있어야 한다.
+  const afterLogin = await request.storageState();
+  const oldRefreshCookie = afterLogin.cookies.find((c) => c.name === "refresh_token");
+  expect(oldRefreshCookie).toBeDefined();
+
+  const rotated = await request.post("/api/auth/refresh");
+  expect(rotated.ok()).toBeTruthy();
+
+  // 캡처해 둔 구 쿠키로 다시 refresh — 이미 회전(폐기)된 토큰의 재사용이므로 401과 함께
+  // 같은 familyId의 전체 세션(방금 회전으로 받은 새 세션 포함)이 폐기되어야 한다.
+  const reused = await request.post("/api/auth/refresh", {
+    headers: { cookie: `refresh_token=${oldRefreshCookie!.value}` },
+  });
+  expect(reused.status()).toBe(401);
+  expect((await reused.json()).code).toBe("AUTH_FAILED");
+
+  // 회전으로 받은 새 쿠키(컨텍스트가 자동으로 들고 있는 최신 쿠키)도 이제 죽어 있어야 한다.
+  const newTokenAlsoDead = await request.post("/api/auth/refresh");
+  expect(newTokenAlsoDead.status()).toBe(401);
+});
+
 test("wrong password gives a generic 401", async ({ request }) => {
   const res = await request.post("/api/auth/login", {
     data: { email: "nobody@example.com", password: "wrong-password" },
@@ -69,6 +109,29 @@ test("wrong password gives a generic 401", async ({ request }) => {
   const body = await res.json();
   expect(body.code).toBe("AUTH_FAILED");
   expect(JSON.stringify(body)).not.toContain("nobody@example.com");
+});
+
+test("a non-JSON login body gives a generic 401, not a 500 (and never reaches the server log as plaintext)", async ({
+  request,
+}) => {
+  // 폼 인코딩처럼 보이는 문자열은 유효한 JSON이 아니다. req.json()이 방어적으로 파싱되지
+  // 않으면 SyntaxError가 미처리 에러로 새어나가 500 + 서버 로그에 입력 조각(이메일 포함)이
+  // 남는다(리뷰 수정 1).
+  const res = await request.post("/api/auth/login", {
+    headers: { "content-type": "application/json" },
+    data: "email=a@b.com&password=x",
+  });
+  expect(res.status()).toBe(401);
+  expect((await res.json()).code).toBe("AUTH_FAILED");
+});
+
+test("a non-JSON register body gives a 400 INVALID_INPUT, not a 500", async ({ request }) => {
+  const res = await request.post("/api/auth/register", {
+    headers: { "content-type": "application/json" },
+    data: "email=a@b.com&password=x",
+  });
+  expect(res.status()).toBe(400);
+  expect((await res.json()).code).toBe("INVALID_INPUT");
 });
 
 test("signup page renders in Korean and switches to English", async ({ page }) => {

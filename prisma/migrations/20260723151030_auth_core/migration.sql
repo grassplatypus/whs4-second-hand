@@ -1,3 +1,6 @@
+-- 전제: 이 마이그레이션은 "User" 테이블이 비어 있음을 전제로 한다(DROP COLUMN "email" +
+-- 여러 NOT NULL 컬럼 추가를 백필 없이 수행). 데이터가 있는 테이블에 그대로 적용하면 안 된다.
+
 -- CreateEnum
 CREATE TYPE "Role" AS ENUM ('USER', 'SUSPENDED', 'ADMIN');
 

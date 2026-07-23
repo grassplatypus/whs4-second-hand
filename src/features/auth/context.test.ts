@@ -22,6 +22,12 @@ describe("getCurrentUser", () => {
     expect(await getCurrentUser(req)).toBeNull();
   });
 
+  it("accepts a lowercase bearer scheme (RFC 7235 auth-scheme is case-insensitive)", async () => {
+    const token = await signAccessToken({ userId: "u1", role: "USER" });
+    const req = new Request("http://localhost/api/auth/me", { headers: { authorization: `bearer ${token}` } });
+    expect(await getCurrentUser(req)).toEqual({ userId: "u1", role: "USER" });
+  });
+
   it("returns null for a tampered token", async () => {
     const token = await signAccessToken({ userId: "u1", role: "USER" });
     expect(await getCurrentUser(await authed(token.slice(0, -2) + "xx"))).toBeNull();

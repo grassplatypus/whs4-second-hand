@@ -160,4 +160,35 @@ describe("SignupForm", () => {
 
     expect(await screen.findByText("이메일이나 비밀번호를 다시 확인해 주세요")).toBeInTheDocument();
   });
+
+  it("shows the generic failed string and does not crash when fetch rejects", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("network down")));
+    const user = userEvent.setup();
+    renderForm();
+    await fillValidForm(user);
+    await user.click(screen.getByRole("button", { name: "가입하기" }));
+
+    expect(await screen.findByText("이메일이나 비밀번호를 다시 확인해 주세요")).toBeInTheDocument();
+  });
+
+  it("disables the submit button while a request is in flight", async () => {
+    let resolveFetch: (value: unknown) => void = () => {};
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockReturnValue(
+        new Promise((resolve) => {
+          resolveFetch = resolve;
+        }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderForm();
+    await fillValidForm(user);
+    const button = screen.getByRole("button", { name: "가입하기" });
+    await user.click(button);
+
+    expect(button).toBeDisabled();
+    resolveFetch({ ok: true, status: 201, json: async () => ({ userId: "u1" }) });
+    await waitFor(() => expect(button).not.toBeDisabled());
+  });
 });
