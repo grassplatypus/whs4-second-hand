@@ -20,6 +20,8 @@
     "mismatch": "Passwords don't match",
     "needConsent": "Consent is required",
     "failed": "Check your email or password",
+    "emailTaken": "That email is already registered",
+    "nicknameTaken": "That nickname is taken",
     "signupDone": "Account created. Please log in"
   }
 }

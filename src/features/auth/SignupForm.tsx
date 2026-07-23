@@ -6,6 +6,13 @@ import { useTranslations } from "next-intl";
 
 type Availability = "unknown" | "checking" | "available" | "taken";
 
+const REGISTER_ERROR_CODES = ["EMAIL_TAKEN", "NICKNAME_TAKEN", "INVALID_INPUT"] as const;
+type RegisterErrorCode = (typeof REGISTER_ERROR_CODES)[number];
+
+function toRegisterErrorCode(value: unknown): RegisterErrorCode | undefined {
+  return REGISTER_ERROR_CODES.find((code) => code === value);
+}
+
 export function SignupForm() {
   const t = useTranslations("auth");
   const router = useRouter();
@@ -48,8 +55,14 @@ export function SignupForm() {
     });
 
     if (!res.ok) {
-      const body = await res.json().catch(() => ({ message: t("failed") }));
-      return setError(body.message ?? t("failed"));
+      const body = await res.json().catch(() => ({ code: undefined }));
+      const registerErrorMessages: Record<RegisterErrorCode, string> = {
+        EMAIL_TAKEN: t("emailTaken"),
+        NICKNAME_TAKEN: t("nicknameTaken"),
+        INVALID_INPUT: t("failed"),
+      };
+      const code = toRegisterErrorCode(body?.code);
+      return setError(code ? registerErrorMessages[code] : t("failed"));
     }
     router.push("/login?signup=done");
   }

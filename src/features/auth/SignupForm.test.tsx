@@ -89,4 +89,75 @@ describe("SignupForm", () => {
 
     expect(await screen.findByText("이미 쓰고 있어요")).toBeInTheDocument();
   });
+
+  it("shows the emailTaken catalog string and never the server message on EMAIL_TAKEN", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 409,
+        json: async () => ({ code: "EMAIL_TAKEN", message: "서버 원문" }),
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm();
+    await fillValidForm(user);
+    await user.click(screen.getByRole("button", { name: "가입하기" }));
+
+    expect(await screen.findByText("이미 가입된 이메일이에요")).toBeInTheDocument();
+    expect(screen.queryByText("서버 원문")).not.toBeInTheDocument();
+  });
+
+  it("shows the nicknameTaken catalog string on NICKNAME_TAKEN", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 409,
+        json: async () => ({ code: "NICKNAME_TAKEN", message: "서버 원문" }),
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm();
+    await fillValidForm(user);
+    await user.click(screen.getByRole("button", { name: "가입하기" }));
+
+    expect(await screen.findByText("이미 쓰고 있는 닉네임이에요")).toBeInTheDocument();
+  });
+
+  it("shows the generic failed string on INVALID_INPUT", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 400,
+        json: async () => ({ code: "INVALID_INPUT", message: "서버 원문" }),
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm();
+    await fillValidForm(user);
+    await user.click(screen.getByRole("button", { name: "가입하기" }));
+
+    expect(await screen.findByText("이메일이나 비밀번호를 다시 확인해 주세요")).toBeInTheDocument();
+  });
+
+  it("shows the generic failed string when the response body fails to parse", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 500,
+        json: async () => {
+          throw new Error("invalid json");
+        },
+      }),
+    );
+    const user = userEvent.setup();
+    renderForm();
+    await fillValidForm(user);
+    await user.click(screen.getByRole("button", { name: "가입하기" }));
+
+    expect(await screen.findByText("이메일이나 비밀번호를 다시 확인해 주세요")).toBeInTheDocument();
+  });
 });
