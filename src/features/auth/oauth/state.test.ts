@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { signState, verifyState, stateCookie, readStateCookie, STATE_COOKIE } from "./state";
 
 describe("state sign/verify", () => {
@@ -32,6 +32,17 @@ describe("state sign/verify", () => {
     expect(verifyState(null, "GOOGLE")).toBeNull();
     expect(verifyState("nope", "GOOGLE")).toBeNull();
     expect(verifyState("a.b", "GOOGLE")).toBeNull();
+  });
+
+  it("rejects an expired state", () => {
+    const raw = signState({ mode: "login", provider: "GOOGLE" });
+    vi.useFakeTimers();
+    vi.setSystemTime(Date.now() + 11 * 60 * 1000); // TTL은 10분
+    expect(verifyState(raw, "GOOGLE")).toBeNull();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 });
 
