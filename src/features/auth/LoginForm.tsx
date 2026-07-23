@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
+import { SocialButtons } from "./SocialButtons";
 
 export function LoginForm() {
   const t = useTranslations("auth");
@@ -36,32 +37,41 @@ export function LoginForm() {
   }
 
   return (
-    <form onSubmit={submit} className="flex w-80 flex-col gap-3" noValidate>
-      <label className="flex flex-col gap-1">
-        {t("email")}
-        <input
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="rounded border px-2 py-1"
-        />
-      </label>
+    <>
+      <form onSubmit={submit} className="flex w-80 flex-col gap-3" noValidate>
+        <label className="flex flex-col gap-1">
+          {t("email")}
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="rounded border px-2 py-1"
+          />
+        </label>
 
-      <label className="flex flex-col gap-1">
-        {t("password")}
-        <input
-          type="password"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="rounded border px-2 py-1"
-        />
-      </label>
+        <label className="flex flex-col gap-1">
+          {t("password")}
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="rounded border px-2 py-1"
+          />
+        </label>
 
-      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+        {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
 
-      <button type="submit" disabled={submitting} className="rounded bg-black px-3 py-2 text-white disabled:opacity-50">
-        {t("submitLogin")}
-      </button>
-    </form>
+        <button type="submit" disabled={submitting} className="rounded bg-black px-3 py-2 text-white disabled:opacity-50">
+          {t("submitLogin")}
+        </button>
+      </form>
+
+      <div className="flex w-80 items-center gap-2 text-sm text-zinc-400">
+        <span className="h-px flex-1 bg-zinc-200" />
+        {t("oauth.or")}
+        <span className="h-px flex-1 bg-zinc-200" />
+      </div>
+      <SocialButtons />
+    </>
   );
 }
