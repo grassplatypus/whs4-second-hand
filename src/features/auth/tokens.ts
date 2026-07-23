@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import { SignJWT, jwtVerify } from "jose";
+import { getEnv } from "@/features/_shared/env";
 
 export const ACCESS_TTL_SECONDS = 15 * 60;
 export const REFRESH_TTL_DAYS = 14;
@@ -9,7 +10,10 @@ export interface AuthClaims {
   role: string;
 }
 
-const accessSecret = new TextEncoder().encode(process.env.JWT_ACCESS_SECRET || "");
+/** 매 호출마다 getEnv()로 검증된 값을 읽는다. 모듈 스코프에 캐시하지 않는다(빈 fallback 재발 방지). */
+function accessKey(): Uint8Array {
+  return new TextEncoder().encode(getEnv().JWT_ACCESS_SECRET);
+}
 
 export async function signAccessToken(claims: AuthClaims): Promise<string> {
   return new SignJWT({ role: claims.role })
@@ -17,13 +21,13 @@ export async function signAccessToken(claims: AuthClaims): Promise<string> {
     .setSubject(claims.userId)
     .setIssuedAt()
     .setExpirationTime(`${ACCESS_TTL_SECONDS}s`)
-    .sign(accessSecret);
+    .sign(accessKey());
 }
 
 /** 검증 실패(서명·만료·형식)는 전부 null. 원인을 구분해 흘리지 않는다. */
 export async function verifyAccessToken(token: string): Promise<AuthClaims | null> {
   try {
-    const { payload } = await jwtVerify(token, accessSecret, { algorithms: ["HS256"] });
+    const { payload } = await jwtVerify(token, accessKey(), { algorithms: ["HS256"] });
     if (!payload.sub || typeof payload.role !== "string") return null;
     return { userId: payload.sub, role: payload.role };
   } catch {

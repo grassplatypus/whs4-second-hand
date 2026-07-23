@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  */
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { SignJWT } from "jose";
 import {
   ACCESS_TTL_SECONDS,
@@ -40,6 +40,37 @@ describe("access token", () => {
 
   it("expires in 15 minutes", () => {
     expect(ACCESS_TTL_SECONDS).toBe(900);
+  });
+});
+
+describe("access token secret validation (env fail-fast)", () => {
+  // signAccessToken/verifyAccessToken must read the secret through getEnv(),
+  // which zod-validates JWT_ACCESS_SECRET (min 16 chars). This proves that
+  // validation path is actually live, and there is no "" fallback key.
+  const originalSecret = process.env.JWT_ACCESS_SECRET;
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    if (originalSecret !== undefined) {
+      process.env.JWT_ACCESS_SECRET = originalSecret;
+    } else {
+      delete process.env.JWT_ACCESS_SECRET;
+    }
+    vi.resetModules();
+  });
+
+  it("rejects signing when JWT_ACCESS_SECRET is missing (no empty-key fallback)", async () => {
+    vi.resetModules();
+    delete process.env.JWT_ACCESS_SECRET;
+    const { signAccessToken: signWithoutSecret } = await import("./tokens");
+    await expect(signWithoutSecret({ userId: "u1", role: "USER" })).rejects.toThrow();
+  });
+
+  it("rejects signing when JWT_ACCESS_SECRET is shorter than 16 chars", async () => {
+    vi.resetModules();
+    vi.stubEnv("JWT_ACCESS_SECRET", "too-short");
+    const { signAccessToken: signWithShortSecret } = await import("./tokens");
+    await expect(signWithShortSecret({ userId: "u1", role: "USER" })).rejects.toThrow();
   });
 });
 

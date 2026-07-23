@@ -2,7 +2,7 @@
  * @vitest-environment node
  */
 import { describe, it, expect } from "vitest";
-import { hashPassword, verifyPassword } from "./password";
+import { hashPassword, verifyPassword, DUMMY_HASH } from "./password";
 
 describe("password", () => {
   it("never stores the plaintext", async () => {
@@ -28,5 +28,18 @@ describe("password", () => {
   it("dummyVerify always returns false (timing equalizer)", async () => {
     const { dummyVerify } = await import("./password");
     expect(await dummyVerify("anything")).toBe(false);
+  });
+
+  it("dummyVerify returns false even when the plain text matches the equalizer input", async () => {
+    const { dummyVerify } = await import("./password");
+    expect(await dummyVerify("timing-equalizer")).toBe(false);
+  });
+
+  it("DUMMY_HASH is a real bcrypt hash of the known input at the ROUNDS(10) cost, not a typo'd string", async () => {
+    // A malformed/typo'd hash would make bcrypt.compare bail out early (cheap),
+    // defeating the timing-equalization purpose. This proves it's a genuine hash
+    // that bcrypt.compare actually runs its full comparison against.
+    expect(DUMMY_HASH).toMatch(/^\$2[aby]\$10\$/);
+    expect(await verifyPassword("timing-equalizer", DUMMY_HASH)).toBe(true);
   });
 });
