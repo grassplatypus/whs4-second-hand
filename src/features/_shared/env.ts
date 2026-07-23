@@ -12,6 +12,11 @@ const schema = z.object({
     message: "must be at least 32 bytes in UTF-8",
   }),
   WS_PORT: z.coerce.number().int().positive(),
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  GOOGLE_REDIRECT_URI: z.string().optional(),
+  OAUTH_STATE_SECRET: z.string().min(16),
+  APP_BASE_URL: z.string().default("http://localhost:3000"),
   NODE_ENV: z.enum(["development", "production", "test"]),
 });
 
