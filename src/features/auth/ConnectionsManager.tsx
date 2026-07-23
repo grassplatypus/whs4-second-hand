@@ -15,10 +15,16 @@ const ERROR_KEYS: Record<string, string> = {
   IDENTITY_TAKEN: "identityTaken",
 };
 
-export function ConnectionsManager({ connected }: { connected: string[] }) {
+export function ConnectionsManager({
+  connected,
+  initialError,
+}: {
+  connected: string[];
+  initialError?: string;
+}) {
   const t = useTranslations("auth.oauth");
   const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(initialError ?? null);
 
   async function unlink(slug: string) {
     setError(null);

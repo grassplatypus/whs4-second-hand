@@ -70,7 +70,11 @@ test("oauth email collision is not auto-linked", async ({ page, request }) => {
     data: { email, phone: "010-1234-5678", nickname: carol.slice(0, 18), password: "hunter2hunter2", passwordConfirm: "hunter2hunter2", consent: true },
   });
   expect(reg.status()).toBe(201);
-  // 같은 이메일로 카카오 OAuth → 자동 연동 안 하고 에러
+  // 같은 이메일로 카카오 OAuth → 자동 연동 안 하고 에러 + 안내 문구 렌더링
   await page.goto(`/api/auth/oauth/kakao/start?mock_as=${carol}`);
-  await expect(page).toHaveURL(/error=email_exists/);
+  await expect(page).toHaveURL(/\/login\?error=email_exists/);
+  // 편차: Next.js가 심는 route-announcer div도 role="alert"라 getByRole("alert")가
+  // strict-mode에서 2개와 충돌한다(위 last-credential 테스트와 동일 사례). 문구로 좁힌다.
+  const alert = page.getByRole("alert").filter({ hasText: "이 이메일은 이미 가입돼 있어요. 로그인 후 여기서 연결해 주세요" });
+  await expect(alert).toBeVisible();
 });

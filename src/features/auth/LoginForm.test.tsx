@@ -9,10 +9,10 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
 }));
 
-function renderForm() {
+function renderForm(oauthError?: string) {
   return render(
     <NextIntlClientProvider locale="ko" messages={ko}>
-      <LoginForm />
+      <LoginForm oauthError={oauthError} />
     </NextIntlClientProvider>,
   );
 }
@@ -63,6 +63,11 @@ describe("LoginForm", () => {
     await user.click(screen.getByRole("button", { name: "로그인하기" }));
 
     expect(await screen.findByText("이메일이나 비밀번호를 다시 확인해 주세요")).toBeInTheDocument();
+  });
+
+  it("shows the oauth error catalog string when passed via prop", () => {
+    renderForm(ko.auth.oauth.emailExists);
+    expect(screen.getByRole("alert")).toHaveTextContent(ko.auth.oauth.emailExists);
   });
 
   it("disables the submit button while a request is in flight", async () => {

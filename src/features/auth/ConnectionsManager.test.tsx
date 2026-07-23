@@ -7,10 +7,10 @@ import ko from "@/i18n/messages/ko.json";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }));
 
-function renderIt(connected: string[]) {
+function renderIt(connected: string[], initialError?: string) {
   return render(
     <NextIntlClientProvider locale="ko" messages={ko}>
-      <ConnectionsManager connected={connected} />
+      <ConnectionsManager connected={connected} initialError={initialError} />
     </NextIntlClientProvider>,
   );
 }
@@ -37,6 +37,11 @@ describe("ConnectionsManager", () => {
       expect(String(call[0])).toBe("/api/auth/oauth/google/unlink");
       expect(call[1].method).toBe("POST");
     });
+  });
+
+  it("shows the initialError catalog string when passed via prop", () => {
+    renderIt(["GOOGLE"], ko.auth.oauth.identityTaken);
+    expect(screen.getByRole("alert")).toHaveTextContent(ko.auth.oauth.identityTaken);
   });
 
   it("shows a catalog message when unlink is refused", async () => {

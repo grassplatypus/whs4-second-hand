@@ -5,13 +5,13 @@ import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { SocialButtons } from "./SocialButtons";
 
-export function LoginForm() {
+export function LoginForm({ oauthError }: { oauthError?: string } = {}) {
   const t = useTranslations("auth");
   const router = useRouter();
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(oauthError ?? null);
   const [submitting, setSubmitting] = useState(false);
 
   async function submit(event: React.FormEvent) {

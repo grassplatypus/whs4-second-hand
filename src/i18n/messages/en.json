@@ -35,7 +35,8 @@
       "emailExists": "That email is already registered. Log in and connect it here",
       "identityTaken": "That social account is linked to another account",
       "lastCredential": "This is your last sign-in method and can't be removed",
-      "failed": "Social login failed. Please try again"
+      "failed": "Social login failed. Please try again",
+      "loginRequired": "Please log in first"
     }
   }
 }
