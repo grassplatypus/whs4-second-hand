@@ -17,6 +17,13 @@ describe("requestMeta", () => {
   it("returns nulls when headers are absent", () => {
     expect(requestMeta(new Request("http://localhost/x"))).toEqual({ ip: null, ua: null });
   });
+
+  it("treats whitespace-only x-forwarded-for as null", () => {
+    const req = new Request("http://localhost/api/auth/login", {
+      headers: { "x-forwarded-for": "   ", "user-agent": "vitest" },
+    });
+    expect(requestMeta(req)).toEqual({ ip: null, ua: "vitest" });
+  });
 });
 
 describe("logAuthEvent", () => {
@@ -36,6 +43,19 @@ describe("logAuthEvent", () => {
 
   it("never breaks the auth flow when the audit write fails", async () => {
     const create = vi.fn().mockRejectedValue(new Error("db down"));
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     await expect(logAuthEvent(fakeDb(create), AUTH_EVENTS.LOGIN, "u1", { ip: null, ua: null })).resolves.toBeUndefined();
+    expect(consoleErrorSpy).toHaveBeenCalledWith(
+      "[AUDIT] 기록 실패",
+      expect.objectContaining({
+        event: "LOGIN",
+        userId: "u1",
+        err: expect.any(Error),
+      }),
+    );
+    expect(consoleErrorSpy.mock.calls[0][1]).not.toHaveProperty("email");
+    expect(consoleErrorSpy.mock.calls[0][1]).not.toHaveProperty("phone");
+    expect(consoleErrorSpy.mock.calls[0][1]).not.toHaveProperty("password");
+    consoleErrorSpy.mockRestore();
   });
 });

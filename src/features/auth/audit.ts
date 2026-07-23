@@ -19,7 +19,7 @@ export interface RequestMeta {
 export function requestMeta(req: Request): RequestMeta {
   const forwarded = req.headers.get("x-forwarded-for");
   return {
-    ip: forwarded ? (forwarded.split(",")[0]?.trim() ?? null) : null,
+    ip: forwarded ? (forwarded.split(",")[0]?.trim() || null) : null,
     ua: req.headers.get("user-agent"),
   };
 }
