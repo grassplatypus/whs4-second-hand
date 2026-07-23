@@ -5,9 +5,10 @@ import { refreshCookie } from "@/features/auth/cookies";
 import { requestMeta } from "@/features/auth/audit";
 
 export const POST = withErrorHandling(async (req: Request) => {
+  const raw = await req.json().catch(() => null);
   const { accessToken, expiresIn, refreshToken, refreshExpiresAt } = await loginUser(
     prisma,
-    await req.json(),
+    raw,
     requestMeta(req),
   );
 
