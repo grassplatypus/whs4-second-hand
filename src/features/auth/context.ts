@@ -7,8 +7,11 @@ import { verifyAccessToken, type AuthClaims } from "./tokens";
  */
 export async function getCurrentUser(req: Request): Promise<AuthClaims | null> {
   const header = req.headers.get("authorization");
-  if (!header?.startsWith("Bearer ")) return null;
-  return verifyAccessToken(header.slice("Bearer ".length).trim());
+  if (!header) return null;
+  // RFC 7235: auth-scheme은 대소문자 구분이 없다("Bearer"/"bearer"/"BEARER" 모두 유효).
+  const match = /^bearer\s+(.+)$/i.exec(header);
+  if (!match) return null;
+  return verifyAccessToken(match[1].trim());
 }
 
 export async function requireUser(req: Request): Promise<AuthClaims> {
