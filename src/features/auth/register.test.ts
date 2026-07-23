@@ -70,6 +70,36 @@ describe("registerUser", () => {
     const db = fakeDb({ findFirst: vi.fn().mockResolvedValue({ id: "other", nickname: "풀숲" }) });
     await expect(registerUser(db, input, noMeta)).rejects.toMatchObject({ code: "NICKNAME_TAKEN" });
   });
+
+  it("maps a concurrent P2002 nickname collision (create) to 409 NICKNAME_TAKEN", async () => {
+    const create = vi.fn().mockRejectedValue({ code: "P2002", meta: { target: ["nickname"] } });
+    const db = fakeDb({ create });
+    await expect(registerUser(db, input, noMeta)).rejects.toMatchObject({
+      code: "NICKNAME_TAKEN",
+      httpStatus: 409,
+    });
+  });
+
+  it("maps a concurrent P2002 email collision (create) to 409 EMAIL_TAKEN", async () => {
+    const create = vi.fn().mockRejectedValue({ code: "P2002", meta: { target: ["emailBlindIndex"] } });
+    const db = fakeDb({ create });
+    await expect(registerUser(db, input, noMeta)).rejects.toMatchObject({
+      code: "EMAIL_TAKEN",
+      httpStatus: 409,
+    });
+  });
+
+  it("does not convert an unrelated create error into a 409", async () => {
+    const create = vi.fn().mockRejectedValue(new Error("connection reset"));
+    const db = fakeDb({ create });
+    await expect(registerUser(db, input, noMeta)).rejects.toThrow("connection reset");
+  });
+
+  it("does not convert a P2002 whose target names neither unique column", async () => {
+    const create = vi.fn().mockRejectedValue({ code: "P2002", meta: { target: ["someOtherColumn"] } });
+    const db = fakeDb({ create });
+    await expect(registerUser(db, input, noMeta)).rejects.toMatchObject({ code: "P2002" });
+  });
 });
 
 describe("checkAvailability", () => {
