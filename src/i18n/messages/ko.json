@@ -3,5 +3,25 @@
     "ok": "잘 돌아가고 있어요",
     "bad": "연결에 문제가 있어요",
     "title": "서버 상태"
+  },
+  "auth": {
+    "signupTitle": "회원가입",
+    "loginTitle": "로그인",
+    "email": "이메일",
+    "phone": "전화번호",
+    "nickname": "닉네임",
+    "password": "비밀번호",
+    "passwordConfirm": "비밀번호 확인",
+    "consent": "개인정보 수집·이용에 동의해요",
+    "submitSignup": "가입하기",
+    "submitLogin": "로그인하기",
+    "taken": "이미 쓰고 있어요",
+    "available": "쓸 수 있어요",
+    "mismatch": "비밀번호가 서로 달라요",
+    "needConsent": "동의가 필요해요",
+    "failed": "이메일이나 비밀번호를 다시 확인해 주세요",
+    "emailTaken": "이미 가입된 이메일이에요",
+    "nicknameTaken": "이미 쓰고 있는 닉네임이에요",
+    "signupDone": "가입이 끝났어요. 로그인해 주세요"
   }
 }

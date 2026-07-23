@@ -45,3 +45,32 @@
 - **Keep(구현):** PII AES-GCM 암호화, 비번 bcrypt, 수집최소화, 동의 캡처, soft delete 파기, 인증 감사로그.
 - **Defer(실런칭 이관):** 처리방침 법무문서, CPO 지정, 유출통지·신고 절차, 내역통지, 접속기록 법정보관, GDPR/CCPA.
 - 준수 리뷰 = 위 Keep 대조 + PII 로그누출·에러마스킹 점검(경량).
+
+## 4. #1a 이행 현황 (2026-07-23)
+
+| Keep 항목 | 구현 위치 | 상태 |
+|---|---|---|
+| 수집 최소화 | `src/features/auth/schema.ts` (이메일·전화·닉네임·비번·동의만) | ✅ |
+| 동의 캡처 | `User.consentedAt`, `registerSchema.consent = literal(true)` | ✅ |
+| PII 암호화(AES-GCM) | `src/features/_shared/crypto.ts` | ✅ |
+| 비번 일방향 | `src/features/auth/password.ts` (bcrypt) | ✅ |
+| 키 분리 | `AES_KEY` / `BLIND_INDEX_KEY` env 주입 | ✅ |
+| 접근로그 | `AuthAuditLog` + `src/features/auth/audit.ts` | ✅ |
+| 파기(soft delete) | `User.deletedAt` 컬럼 + 로그인 차단. 탈퇴 플로우는 1c | 부분(설계대로) |
+| 상세주소 미수집 | 스키마에 동네 컬럼(`regionCiphertext`)만, 가입 폼에 주소 입력 없음 | ✅ |
+
+Defer 항목(처리방침·CPO·유출통지·내역통지·법정보관·GDPR/CCPA)은 실런칭 전 이관 상태 유지.
+
+## 5. 최종 브랜치 리뷰(opus) 반영 — 수용한 트레이드오프 (2026-07-24)
+
+`docs/superpowers/specs/2026-07-18-auth-core-design.md`의 "알려진 갭 / 수용한 트레이드오프" 절과
+동일한 결정. 준수 관점에서 특히 관련 있는 항목만 별도 표로 남긴다(수집최소화·동의·암호화 등 4절 표는
+그대로 유지, 상태는 갱신 없음).
+
+| 항목 | 관련 원칙 | 현황 | 결정/이관 |
+|---|---|---|---|
+| 계정 존재 여부 노출(`check-availability`, 가입 409) | 안전조치·설계상 보호 | 무인증·무제한으로 계정 존재 여부 확인 가능 | 기능 요구사항상 유지, 의도적 트레이드오프로 기록 |
+| 레이트리밋 없음(로그인/가입/중복체크) | 안전조치·설계상 보호 | bcrypt 지연(~60ms)만 있고 그 외 제한 없음 — 위 항목과 결합 시 열거 실용화 | 소유자 #2(RBAC) 또는 1a-ext로 이관 |
+| access 토큰 잔존 창(로그아웃/탈퇴 후 최대 15분) | 처리정지·파기 | 무상태 검증이라 폐기 후에도 기존 토큰이 만료까지 유효 | #2 RBAC이 닫을지 결정 필요, 현재는 기록만 |
+
+Defer 항목은 위와 별개로 그대로 유지된다.
