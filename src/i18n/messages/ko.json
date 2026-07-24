@@ -72,7 +72,13 @@
   },
   "common": {
     "suspended": "계정이 정지되었어요. 문의해 주세요",
-    "forbidden": "권한이 없어요"
+    "forbidden": "권한이 없어요",
+    "show": "표시",
+    "hide": "숨기기",
+    "close": "닫기",
+    "prev": "이전",
+    "next": "다음",
+    "loading": "불러오는 중"
   },
   "health": {
     "ok": "잘 돌아가고 있어요",

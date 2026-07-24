@@ -72,7 +72,13 @@
   },
   "common": {
     "suspended": "Your account has been suspended. Please contact support.",
-    "forbidden": "You don't have permission for that."
+    "forbidden": "You don't have permission for that.",
+    "show": "Show",
+    "hide": "Hide",
+    "close": "Close",
+    "prev": "Previous",
+    "next": "Next",
+    "loading": "Loading"
   },
   "health": {
     "ok": "All good",

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode, type InputHTMLAttributes, type SelectHTMLAttributes, type ButtonHTMLAttributes } from "react";
+import { useTranslations } from "next-intl";
 
 /** 공통 카드 컨테이너. */
 export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
@@ -8,6 +9,27 @@ export function Card({ children, className = "" }: { children: ReactNode; classN
     <div className={`rounded-xl border border-zinc-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-900 ${className}`}>
       {children}
     </div>
+  );
+}
+
+/**
+ * 모든 페이지의 공통 컨테이너 — 좌우 패딩·최대폭·상단정렬을 한 곳에서 통일한다.
+ * (페이지마다 px-4 누락·정렬 제각각이던 문제를 근본 해소.)
+ */
+export function PageContainer({
+  children,
+  size = "md",
+  className = "",
+}: {
+  children: ReactNode;
+  size?: "sm" | "md" | "lg";
+  className?: string;
+}) {
+  const max = size === "sm" ? "max-w-md" : size === "lg" ? "max-w-5xl" : "max-w-2xl";
+  return (
+    <main className={`mx-auto flex w-full flex-1 flex-col gap-6 px-4 py-10 ${max} ${className}`}>
+      {children}
+    </main>
   );
 }
 
@@ -47,17 +69,17 @@ export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
 /** 표시/숨김 토글이 있는 비밀번호 입력. */
 export function PasswordInput(props: Omit<InputHTMLAttributes<HTMLInputElement>, "type">) {
   const [show, setShow] = useState(false);
+  const t = useTranslations("common");
   return (
     <div className="relative">
       <input {...props} type={show ? "text" : "password"} className={`${inputBase} pr-16 ${props.className ?? ""}`} />
       <button
         type="button"
         onClick={() => setShow((v) => !v)}
-        tabIndex={-1}
-        aria-label={show ? "숨기기" : "표시"}
+        aria-label={show ? t("hide") : t("show")}
         className="absolute right-2 top-1/2 -translate-y-1/2 rounded px-2 py-1 text-xs font-medium text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
       >
-        {show ? "숨김" : "표시"}
+        {show ? t("hide") : t("show")}
       </button>
     </div>
   );

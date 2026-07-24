@@ -1,6 +1,6 @@
 "use client";
 
-import { useTranslations } from "next-intl";
+import { useTranslations, useFormatter } from "next-intl";
 
 /**
  * GET /api/products가 내려주는 카드 안전 부분집합과 정확히 같은 모양이다.
@@ -30,7 +30,8 @@ const SAMPLE_CATEGORIES = new Set([
 
 export function ProductCard({ product }: { product: ProductCardView }) {
   const t = useTranslations("product");
-  const priceLabel = product.price === 0 ? t("free") : `${product.price.toLocaleString()}${t("won")}`;
+  const format = useFormatter();
+  const priceLabel = product.price === 0 ? t("free") : `${format.number(product.price)}${t("won")}`;
   // 실제 업로드 이미지가 있으면 그걸, 없으면 카테고리 예시 이미지(public/samples)를 폴백으로 쓴다.
   const imgSrc = product.thumbnail
     ? `/api/media/${product.thumbnail}`
