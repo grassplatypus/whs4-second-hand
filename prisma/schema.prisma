@@ -30,6 +30,23 @@ enum OtpPurpose {
   SETUP
 }
 
+enum ProductStatus {
+  SELLING
+  RESERVED
+  SOLD
+}
+
+enum Category {
+  DIGITAL
+  APPLIANCE
+  FURNITURE
+  CLOTHING
+  BOOK
+  BEAUTY
+  SPORTS
+  ETC
+}
+
 model User {
   id               String          @id @default(cuid())
   nickname         String          @unique
@@ -54,6 +71,7 @@ model User {
   identities       AuthIdentity[]
   emailOtps        EmailOtp[]
   phoneOtps        PhoneOtp[]
+  products         Product[]
 
   @@index([phoneBlindIndex])
 }
@@ -121,4 +139,38 @@ model AuthAuditLog {
   createdAt DateTime @default(now())
 
   @@index([userId])
+}
+
+model Product {
+  id            String         @id @default(cuid())
+  sellerId      String
+  seller        User           @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  title         String
+  titleChoseong String
+  description   String
+  price         Int
+  category      Category
+  status        ProductStatus  @default(SELLING)
+  lat           Float
+  lng           Float
+  regionLabel   String?
+  directPlace   String?
+  images        ProductImage[]
+  deletedAt     DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@index([status, category, createdAt])
+  @@index([sellerId])
+  @@index([lat, lng])
+}
+
+model ProductImage {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  path      String
+  order     Int
+
+  @@index([productId])
 }
