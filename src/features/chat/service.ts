@@ -185,12 +185,13 @@ export async function sendMessage(
 export interface ConversationSummary {
   conversationId: string;
   otherNickname: string;
-  productId: string;
+  product: { id: string; title: string };
   lastMessageAt: Date;
 }
 
 /**
  * 내 대화 목록 — 상대방은 닉네임만 노출한다(이메일/전화/식별정보는 select조차 하지 않는다).
+ * 목록의 대표 텍스트는 상품명이므로 상품 title도 함께 조회한다(삭제된 상품이면 빈 문자열 — 화면이 폴백 문구를 보여준다).
  */
 export async function listConversations(repo: ChatRepo, db: ChatDb, userId: string): Promise<ConversationSummary[]> {
   const conversations = await repo.listConversations(userId);
@@ -198,11 +199,14 @@ export async function listConversations(repo: ChatRepo, db: ChatDb, userId: stri
   return Promise.all(
     conversations.map(async (conversation) => {
       const otherId = otherParticipant(conversation, userId);
-      const other = await db.user.findUnique({ where: { id: otherId }, select: { nickname: true } });
+      const [other, product] = await Promise.all([
+        db.user.findUnique({ where: { id: otherId }, select: { nickname: true } }),
+        db.product.findFirst({ where: { id: conversation.productId }, select: { title: true } }),
+      ]);
       return {
         conversationId: conversation._id,
         otherNickname: other?.nickname ?? "",
-        productId: conversation.productId,
+        product: { id: conversation.productId, title: product?.title ?? "" },
         lastMessageAt: conversation.lastMessageAt,
       };
     }),
@@ -231,6 +235,32 @@ export async function blockUser(repo: ChatRepo, userId: string, targetId: string
 
 export async function unblockUser(repo: ChatRepo, userId: string, targetId: string): Promise<void> {
   await repo.unblock(userId, targetId);
+}
+
+/**
+ * 대화 상대를 차단/신고할 때 클라이언트가 상대의 원본 userId를 알 필요가 없도록,
+ * conversationId만 받아 서버에서 상대를 계산한다(참여자가 아니면 403 — 제3자가 임의 차단 불가).
+ */
+export async function blockConversationCounterparty(
+  repo: ChatRepo,
+  userId: string,
+  conversationId: string,
+): Promise<void> {
+  const conversation = await repo.getConversation(conversationId);
+  if (!conversation) throw conversationNotFound();
+  assertParticipant(conversation, userId);
+  await repo.block(userId, otherParticipant(conversation, userId));
+}
+
+export async function unblockConversationCounterparty(
+  repo: ChatRepo,
+  userId: string,
+  conversationId: string,
+): Promise<void> {
+  const conversation = await repo.getConversation(conversationId);
+  if (!conversation) throw conversationNotFound();
+  assertParticipant(conversation, userId);
+  await repo.unblock(userId, otherParticipant(conversation, userId));
 }
 
 /**
@@ -271,4 +301,17 @@ export async function reportUser(
     createdAt: new Date(),
     status: "open",
   });
+}
+
+/** 신고 화면도 conversationId만 받아 상대를 서버에서 계산한다(reportUser와 동일한 이유). */
+export async function reportConversationCounterparty(
+  repo: ChatRepo,
+  reporterId: string,
+  conversationId: string,
+  reason: string,
+): Promise<void> {
+  const conversation = await repo.getConversation(conversationId);
+  if (!conversation) throw conversationNotFound();
+  assertParticipant(conversation, reporterId);
+  await reportUser(repo, reporterId, otherParticipant(conversation, reporterId), reason);
 }

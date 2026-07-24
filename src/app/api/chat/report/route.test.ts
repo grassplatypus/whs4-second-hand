@@ -7,6 +7,7 @@ const currentUserFromRefresh = vi.fn();
 const userFindUnique = vi.fn();
 const reportMessage = vi.fn();
 const reportUser = vi.fn();
+const reportConversationCounterparty = vi.fn();
 const getChatRepo = vi.fn(() => ({ marker: "fake-repo" }));
 
 vi.mock("@/features/_shared/prisma", () => ({
@@ -22,6 +23,7 @@ vi.mock("@/features/chat/service", async () => {
     ...actual,
     reportMessage: (...args: unknown[]) => reportMessage(...args),
     reportUser: (...args: unknown[]) => reportUser(...args),
+    reportConversationCounterparty: (...args: unknown[]) => reportConversationCounterparty(...args),
   };
 });
 
@@ -40,6 +42,7 @@ beforeEach(() => {
   userFindUnique.mockReset();
   reportMessage.mockReset();
   reportUser.mockReset();
+  reportConversationCounterparty.mockReset();
   getChatRepo.mockClear();
   userFindUnique.mockResolvedValue({ role: "USER", deletedAt: null });
 });
@@ -50,7 +53,7 @@ describe("POST /api/chat/report", () => {
     const res = await POST(req({ targetType: "message", targetId: "m1", reason: "욕설" }));
     expect(res.status).toBe(401);
     expect(reportMessage).not.toHaveBeenCalled();
-    expect(reportUser).not.toHaveBeenCalled();
+    expect(reportConversationCounterparty).not.toHaveBeenCalled();
   });
 
   it("403s a suspended user and never calls the service", async () => {
@@ -66,6 +69,14 @@ describe("POST /api/chat/report", () => {
     const res = await POST(req({ targetType: "bogus", targetId: "m1", reason: "욕설" }, `${REFRESH_COOKIE}=tok`));
     expect(res.status).toBe(400);
     expect(reportMessage).not.toHaveBeenCalled();
+    expect(reportConversationCounterparty).not.toHaveBeenCalled();
+  });
+
+  it("400s targetType=user without a conversationId or targetId", async () => {
+    currentUserFromRefresh.mockResolvedValue({ userId: "u1" });
+    const res = await POST(req({ targetType: "user", reason: "사기 의심" }, `${REFRESH_COOKIE}=tok`));
+    expect(res.status).toBe(400);
+    expect(reportConversationCounterparty).not.toHaveBeenCalled();
     expect(reportUser).not.toHaveBeenCalled();
   });
 
@@ -81,17 +92,41 @@ describe("POST /api/chat/report", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
     expect(reportMessage).toHaveBeenCalledWith(getChatRepo(), "real-reporter", "m1", "욕설");
+    expect(reportConversationCounterparty).not.toHaveBeenCalled();
+  });
+
+  it("routes targetType=user WITH a conversationId to reportConversationCounterparty (preferred — ChatRoom only ever sends this) — the target user id is derived server-side, never sent by the client", async () => {
+    currentUserFromRefresh.mockResolvedValue({ userId: "real-reporter" });
+    reportConversationCounterparty.mockResolvedValue(undefined);
+    const res = await POST(
+      req({ targetType: "user", conversationId: "c1", reason: "사기 의심" }, `${REFRESH_COOKIE}=tok`),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(reportConversationCounterparty).toHaveBeenCalledWith(getChatRepo(), "real-reporter", "c1", "사기 의심");
+    expect(reportMessage).not.toHaveBeenCalled();
     expect(reportUser).not.toHaveBeenCalled();
   });
 
-  it("routes targetType=user to reportUser with the AUTHENTICATED reporterId", async () => {
+  it("falls back to reportUser with a direct targetId when no conversationId is given (non-chat report entry points, e.g. admin/profile flows)", async () => {
     currentUserFromRefresh.mockResolvedValue({ userId: "real-reporter" });
     reportUser.mockResolvedValue(undefined);
     const res = await POST(req({ targetType: "user", targetId: "u2", reason: "사기 의심" }, `${REFRESH_COOKIE}=tok`));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
     expect(reportUser).toHaveBeenCalledWith(getChatRepo(), "real-reporter", "u2", "사기 의심");
-    expect(reportMessage).not.toHaveBeenCalled();
+    expect(reportConversationCounterparty).not.toHaveBeenCalled();
+  });
+
+  it("prefers conversationId over targetId when both are present (never trusts a client-supplied targetId when a conversationId is available)", async () => {
+    currentUserFromRefresh.mockResolvedValue({ userId: "real-reporter" });
+    reportConversationCounterparty.mockResolvedValue(undefined);
+    const res = await POST(
+      req({ targetType: "user", conversationId: "c1", targetId: "spoofed", reason: "사기 의심" }, `${REFRESH_COOKIE}=tok`),
+    );
+    expect(res.status).toBe(200);
+    expect(reportConversationCounterparty).toHaveBeenCalledWith(getChatRepo(), "real-reporter", "c1", "사기 의심");
+    expect(reportUser).not.toHaveBeenCalled();
   });
 
   it("maps a service AppError (e.g. NOT_FOUND) to its status", async () => {

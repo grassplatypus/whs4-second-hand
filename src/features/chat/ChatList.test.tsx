@@ -24,17 +24,30 @@ afterEach(() => {
 const item: ChatListItem = {
   conversationId: "c1",
   otherNickname: "풀숲여우",
-  productId: "p1",
+  product: { id: "p1", title: "빈티지 가죽 재킷" },
   lastMessageAt: "2026-01-01T00:00:00.000Z",
 };
 
 describe("ChatList", () => {
-  it("fetches conversations on mount and renders the other party's nickname, linking to the chat room", async () => {
+  it("leads each row with the PRODUCT TITLE, with the other party's nickname as secondary text, linking to the chat room (#1)", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ok([item])));
     renderIt();
 
+    const heading = await screen.findByText("빈티지 가죽 재킷");
+    expect(heading).toBeInTheDocument();
     expect(await screen.findByText("풀숲여우")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /풀숲여우/ })).toHaveAttribute("href", "/chat/c1");
+    const link = heading.closest("a");
+    expect(link).toHaveAttribute("href", "/chat/c1");
+  });
+
+  it("falls back to a deleted-product label when the product title is empty", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(ok([{ ...item, product: { id: "p1", title: "" } }])),
+    );
+    renderIt();
+
+    expect(await screen.findByText(ko.chat.deletedProduct)).toBeInTheDocument();
   });
 
   it("never renders the other party's email/phone — no such fields exist on the item shape", async () => {
@@ -46,11 +59,34 @@ describe("ChatList", () => {
     expect(container.innerHTML).not.toMatch(/\d{2,3}-\d{3,4}-\d{4}/);
   });
 
-  it("shows the empty state when there are no conversations", async () => {
+  it("shows a loading skeleton before the fetch resolves", async () => {
+    let resolveFetch: (v: unknown) => void = () => {};
+    const pending = new Promise((resolve) => {
+      resolveFetch = resolve;
+    });
+    vi.stubGlobal("fetch", vi.fn().mockReturnValue(pending));
+    const { container } = renderIt();
+
+    expect(container.querySelector(".animate-pulse")).toBeInTheDocument();
+    resolveFetch(ok([]));
+    await screen.findByText(ko.chat.empty);
+  });
+
+  it("shows the empty state with a CTA when there are no conversations", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ok([])));
     renderIt();
 
     expect(await screen.findByText(ko.chat.empty)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: ko.chat.emptyCta })).toHaveAttribute("href", "/products");
+  });
+
+  it("guards an invalid lastMessageAt (NaN date) instead of rendering 'Invalid Date'", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ok([{ ...item, lastMessageAt: "not-a-date" }])));
+    renderIt();
+
+    await screen.findByText("빈티지 가죽 재킷");
+    expect(screen.queryByText(/Invalid Date/i)).not.toBeInTheDocument();
+    expect(screen.getByText("—")).toBeInTheDocument();
   });
 
   it("maps a failed fetch to the catalog failed message, never a raw server message", async () => {

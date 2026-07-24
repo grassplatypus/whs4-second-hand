@@ -106,7 +106,8 @@ test("채팅 슬라이스 전체: 시작→마스킹→이미지-후-답장 규�
     );
     expect(listedConv).toBeDefined();
     expect(listedConv.otherNickname).toBe(sellerId);
-    expect(listedConv.productId).toBe(productId);
+    expect(listedConv.product.id).toBe(productId);
+    expect(listedConv.product.title).toBe("아이패드 팝니다");
 
     // 2) 구매자가 비속어(시발)를 보낸다 — 전달되는 텍스트에 원문이 남지 않아야 한다(마스킹).
     const profanitySend = await buyerCtx.request.post(`/api/chat/conversations/${conversationId}/messages`, {
@@ -141,8 +142,9 @@ test("채팅 슬라이스 전체: 시작→마스킹→이미지-후-답장 규�
     });
     expect(sellerReply.status()).toBe(201);
     const sellerReplyBody = await sellerReply.json();
-    const sellerUserId: string = sellerReplyBody.message.senderId;
-    expect(typeof sellerUserId).toBe("string");
+    // 서버가 mine을 계산해 내려준다(#5/G8) — 상대의 원본 userId(senderId)는 응답에 실리지 않는다.
+    expect(sellerReplyBody.message.mine).toBe(true);
+    expect(sellerReplyBody.message).not.toHaveProperty("senderId");
 
     const upload = await buyerCtx.request.post("/api/products/images", {
       multipart: {
@@ -166,7 +168,8 @@ test("채팅 슬라이스 전체: 시작→마스킹→이미지-후-답장 규�
     expect((await thirdPartyRead.json()).code).toBe("FORBIDDEN");
 
     // 6) 구매자가 판매자를 차단하면 판매자의 전송이 막힌다(양방향 체크) → 차단 해제하면 다시 된다.
-    const block = await buyerCtx.request.post("/api/chat/block", { data: { targetId: sellerUserId } });
+    // 차단/신고 대상은 conversationId로만 넘긴다 — 서버가 상대의 userId를 계산한다(#5/G8, targetId 아님).
+    const block = await buyerCtx.request.post("/api/chat/block", { data: { conversationId } });
     expect(block.ok()).toBeTruthy();
     expect(await block.json()).toEqual({ ok: true });
 
@@ -177,7 +180,7 @@ test("채팅 슬라이스 전체: 시작→마스킹→이미지-후-답장 규�
     expect(sellerSendWhileBlocked.status()).toBe(403);
     expect((await sellerSendWhileBlocked.json()).code).toBe("BLOCKED");
 
-    const unblock = await buyerCtx.request.post("/api/chat/unblock", { data: { targetId: sellerUserId } });
+    const unblock = await buyerCtx.request.post("/api/chat/unblock", { data: { conversationId } });
     expect(unblock.ok()).toBeTruthy();
     expect(await unblock.json()).toEqual({ ok: true });
 
@@ -211,7 +214,7 @@ test("채팅 슬라이스 전체: 시작→마스킹→이미지-후-답장 규�
       expect(guestMessages.status()).toBe(401);
       expect((await guestMessages.json()).code).toBe("UNAUTHENTICATED");
 
-      const guestBlock = await guestCtx.request.post("/api/chat/block", { data: { targetId: sellerUserId } });
+      const guestBlock = await guestCtx.request.post("/api/chat/block", { data: { conversationId } });
       expect(guestBlock.status()).toBe(401);
       expect((await guestBlock.json()).code).toBe("UNAUTHENTICATED");
 
