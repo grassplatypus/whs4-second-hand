@@ -136,7 +136,7 @@ describe("listReports (닉네임 보강·snapshot 관리자 전용)", () => {
 describe("resolveReport", () => {
   it("resolve면 status=resolved + 감사", async () => {
     const repo = new InMemoryChatRepo();
-    const update = vi.spyOn(repo, "updateReportStatus");
+    const update = vi.spyOn(repo, "updateReportStatus").mockResolvedValue(true);
     const { db, auditCreate } = fakeDb({});
     await resolveReport(repo, db, ADMIN, "rep-1", "resolve");
     expect(update).toHaveBeenCalledWith("rep-1", "resolved");
@@ -145,10 +145,17 @@ describe("resolveReport", () => {
 
   it("dismiss면 status=dismissed", async () => {
     const repo = new InMemoryChatRepo();
-    const update = vi.spyOn(repo, "updateReportStatus");
+    const update = vi.spyOn(repo, "updateReportStatus").mockResolvedValue(true);
     const { db } = fakeDb({});
     await resolveReport(repo, db, ADMIN, "rep-1", "dismiss");
     expect(update).toHaveBeenCalledWith("rep-1", "dismissed");
+  });
+
+  it("없는 신고를 처리하려 하면 404이고 거짓 감사 로그를 남기지 않는다", async () => {
+    const repo = new InMemoryChatRepo(); // 아무 신고도 없음 → updateReportStatus false
+    const { db, auditCreate } = fakeDb({});
+    await expect(resolveReport(repo, db, ADMIN, "ghost", "resolve")).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(auditCreate).not.toHaveBeenCalled();
   });
 
   it("잘못된 action은 400", async () => {

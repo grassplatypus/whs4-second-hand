@@ -100,7 +100,8 @@ export async function resolveReport(
     throw new AppError("INVALID_INPUT", "처리 방식이 올바르지 않아요.", 400);
   }
   const status = action === "resolve" ? "resolved" : "dismissed";
-  await repo.updateReportStatus(reportId, status);
+  const matched = await repo.updateReportStatus(reportId, status);
+  if (!matched) throw notFound("신고를 찾을 수 없어요."); // 없는 신고에 거짓 감사 로그를 남기지 않는다
   await audit(db, adminId, action === "resolve" ? "ADMIN_RESOLVE_REPORT" : "ADMIN_DISMISS_REPORT", reportId);
 }
 
@@ -158,7 +159,7 @@ export async function dashboardStats(db: AdminDb, repo: ChatRepo): Promise<Dashb
       db.product.count({ where: { status: "SOLD", deletedAt: null } }),
       db.escrow.count({ where: { status: { in: active } } }),
       db.escrow.count({ where: { status: "DISPUTED" } }),
-      repo.listReports({ status: "open" }).then((r) => r.length),
+      repo.countReports("open"),
     ]);
   return {
     users,

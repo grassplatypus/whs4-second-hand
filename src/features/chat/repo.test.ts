@@ -195,10 +195,16 @@ describe("InMemoryChatRepo", () => {
     expect(onlyOpen.every((r) => r.status === "open")).toBe(true);
 
     const target = onlyOpen.find((r) => r.reason === "최신 open")!;
-    await repo.updateReportStatus(target._id, "dismissed");
+    expect(await repo.updateReportStatus(target._id, "dismissed")).toBe(true);
+    expect(await repo.updateReportStatus("nope", "dismissed")).toBe(false); // 없는 신고는 false
     const afterOpen = await repo.listReports({ status: "open" });
     expect(afterOpen.map((r) => r.reason)).toEqual(["오래된 open"]);
     const dismissed = await repo.listReports({ status: "dismissed" });
     expect(dismissed.map((r) => r.reason)).toEqual(["최신 open"]);
+
+    // countReports: 상태별·전체
+    expect(await repo.countReports()).toBe(3);
+    expect(await repo.countReports("open")).toBe(1);
+    expect(await repo.countReports("dismissed")).toBe(1);
   });
 });
