@@ -9,6 +9,15 @@ export interface Conversation {
   buyerId: string;
   createdAt: Date;
   lastMessageAt: Date;
+  /** 각자 마지막으로 방을 열어본 시각 — 안 읽은 수와 읽음 표시의 기준. */
+  buyerReadAt?: Date;
+  sellerReadAt?: Date;
+  /**
+   * 각자 방을 나간 시각. 나간 뒤로 새 메시지가 없으면 그 사람 목록에서 숨긴다.
+   * 상대가 새로 보내면 다시 보이고, 둘 다 나가고 새 메시지도 없으면 휴면 방이 된다.
+   */
+  buyerLeftAt?: Date;
+  sellerLeftAt?: Date;
 }
 
 export interface Message {

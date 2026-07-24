@@ -35,12 +35,16 @@ export interface SensitiveSpan {
   /** 원문에서의 끝 위치(제외). */
   end: number;
   kind: "phone" | "account";
+  /** 숫자를 한글·알파벳 등으로 바꿔 쓴 흔적이 있는가(있으면 경고 수위를 올린다). */
+  evasive: boolean;
 }
 
 export interface SensitiveScan {
   spans: SensitiveSpan[];
   hasPhone: boolean;
   hasAccount: boolean;
+  /** 하나라도 우회 표기가 있으면 true — 단순 안내가 아니라 경고를 띄운다. */
+  hasEvasive: boolean;
 }
 
 /** 숫자 사이에 흔히 끼워 넣는 구분자·장식 문자(무시한다). */
@@ -56,21 +60,23 @@ const SEPARATORS = new Set([
 /** 한글 수사(영/일/이…)는 흔한 일상 글자라, 이어서 여러 개 나올 때만 숫자로 읽는다. */
 const HANGUL_NUMERALS = new Set("영공빵일이삼사오육칠팔구ㅇ");
 
-function scanRuns(text: string): { start: number; end: number; digits: string }[] {
-  const runs: { start: number; end: number; digits: string }[] = [];
+function scanRuns(text: string): { start: number; end: number; digits: string; evasive: boolean }[] {
+  const runs: { start: number; end: number; digits: string; evasive: boolean }[] = [];
   let start = -1;
   let digits = "";
   let lastDigitIdx = -1;
   let hangulStreak = 0; // 지금까지 이어진 한글 수사 개수
+  let evasive = false; // 숫자 아닌 문자를 숫자로 읽은 적이 있는가(우회 표기 흔적)
 
   const flush = () => {
     if (start >= 0 && digits.length > 0 && lastDigitIdx >= start) {
-      runs.push({ start, end: lastDigitIdx + 1, digits });
+      runs.push({ start, end: lastDigitIdx + 1, digits, evasive });
     }
     start = -1;
     digits = "";
     lastDigitIdx = -1;
     hangulStreak = 0;
+    evasive = false;
   };
 
   for (let i = 0; i < text.length; i++) {
@@ -94,6 +100,7 @@ function scanRuns(text: string): { start: number; end: number; digits: string }[
         hangulStreak = 0;
       }
       if (start < 0) start = i;
+      if (!(ch >= "0" && ch <= "9")) evasive = true; // 한글·알파벳을 숫자로 읽었다면 우회 표기
       digits += d;
       lastDigitIdx = i;
       continue;
@@ -139,17 +146,18 @@ export function scanSensitive(text: string): SensitiveScan {
   const bankMentioned = mentionsBank(text);
   for (const run of scanRuns(text)) {
     if (looksLikePhone(run.digits)) {
-      spans.push({ start: run.start, end: run.end, kind: "phone" });
+      spans.push({ start: run.start, end: run.end, kind: "phone", evasive: run.evasive });
     } else if (looksLikeAccount(run.digits)) {
-      spans.push({ start: run.start, end: run.end, kind: "account" });
+      spans.push({ start: run.start, end: run.end, kind: "account", evasive: run.evasive });
     } else if (bankMentioned && run.digits.length >= 8) {
       // 은행 이름이 함께 적혔다면 자릿수가 조금 짧아도 계좌로 본다.
-      spans.push({ start: run.start, end: run.end, kind: "account" });
+      spans.push({ start: run.start, end: run.end, kind: "account", evasive: run.evasive });
     }
   }
   return {
     spans,
     hasPhone: spans.some((s) => s.kind === "phone"),
     hasAccount: spans.some((s) => s.kind === "account"),
+    hasEvasive: spans.some((s) => s.evasive),
   };
 }

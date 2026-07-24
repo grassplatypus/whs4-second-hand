@@ -1,5 +1,7 @@
 import { AppError } from "@/features/_shared/error";
 import { maskProfanity } from "./filter";
+import { scanSensitive, type SensitiveSpan } from "./sensitive";
+import { getFraudLookup } from "./fraud-lookup";
 import type { ChatRepo, Conversation, Message } from "./repo";
 import type { ChatDb } from "./db";
 
@@ -33,10 +35,14 @@ export interface DeliveredMessage {
   imagePath?: string;
   masked: boolean;
   createdAt: Date;
+  /** 전화번호·계좌로 보이는 구간 — 화면에서 밑줄로 표시하고 안내 문구를 띄운다. */
+  sensitive?: SensitiveSpan[];
 }
 
 /** repo의 Message(rawText 포함 가능)를 참여자 전달용 모양으로 변환한다 — rawText는 여기서 걸러진다. */
 function toDelivered(msg: Message): DeliveredMessage {
+  // 전달되는 텍스트(마스킹본) 기준으로 연락처·계좌 구간을 표시한다 — 화면에서 밑줄·안내에 쓴다.
+  const sensitive = msg.text ? scanSensitive(msg.text).spans : [];
   return {
     _id: msg._id,
     conversationId: msg.conversationId,
@@ -46,6 +52,7 @@ function toDelivered(msg: Message): DeliveredMessage {
     imagePath: msg.imagePath,
     masked: msg.masked,
     createdAt: msg.createdAt,
+    ...(sensitive.length > 0 ? { sensitive } : {}),
   };
 }
 
@@ -153,6 +160,46 @@ function assertValidReason(raw: string): string {
 }
 
 /**
+ * 전화번호·계좌번호가 오갔는지 살펴, 위험 신호면 관리자에게 조용히 알린다.
+ * - 우회 표기(영1영-5O14 같은 필터 회피)는 그 자체가 신호라 바로 통보.
+ * - 사기 신고 이력(더치트류 조회)이 있으면 함께 통보.
+ * 사용자에게는 알리지 않는다(대화는 그대로 진행되고, 화면 안내는 별도).
+ */
+async function flagSensitiveForAdmin(
+  repo: ChatRepo,
+  message: { _id: string; rawText?: string; text?: string },
+  scan: { spans: { kind: "phone" | "account"; evasive: boolean }[]; hasEvasive: boolean },
+): Promise<void> {
+  const raw = message.rawText ?? message.text ?? "";
+  const reasons: string[] = [];
+  if (scan.hasEvasive) reasons.push("자동 감지: 연락처·계좌 우회 표기");
+
+  // 사기 이력 조회(데모 목업) — 감지된 각 번호를 확인한다.
+  const lookup = getFraudLookup();
+  for (const span of scan.spans) {
+    const digits = raw.replace(/\D/g, "");
+    if (!digits) continue;
+    const result = await lookup.check(span.kind, digits).catch(() => null);
+    if (result?.reported) {
+      reasons.push(`자동 감지: 사기 신고 이력 ${result.count}건(${span.kind === "phone" ? "전화번호" : "계좌"})`);
+      break;
+    }
+  }
+
+  if (reasons.length === 0) return;
+  await repo.upsertAutoReport({
+    reporterId: "system",
+    targetType: "message",
+    targetId: message._id,
+    reason: reasons.join(" · "),
+    snapshot: raw,
+    createdAt: new Date(),
+    status: "open",
+    auto: true,
+  });
+}
+
+/**
  * 비속어가 감지되면 관리자에게 조용히 알린다 — 보낸 사람에게는 아무 표시도 하지 않는다.
  * 나중에 같은 메시지를 사용자가 신고하면 messageId로 합쳐져 관리자 화면에 한 건으로 보인다.
  */
@@ -223,6 +270,9 @@ export async function sendMessage(
   await repo.updateLastMessageAt(conversationId, now);
   // 비속어면 관리자에게만 조용히 기록한다(보낸 사람에겐 알리지 않는다).
   if (hit) await flagProfanityForAdmin(repo, message);
+  // 연락처·계좌가 오갔고 위험 신호(우회 표기·사기 이력)가 있으면 역시 조용히 기록한다.
+  const scan = scanSensitive(rawText);
+  if (scan.spans.length > 0) await flagSensitiveForAdmin(repo, message, scan);
   return toDelivered(message);
 }
 
