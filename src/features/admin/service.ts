@@ -152,7 +152,8 @@ export interface DashboardStats {
 
 /** 대시보드 집계(읽기 전용, PII 없음 — 수치만). */
 export async function dashboardStats(db: AdminDb, repo: ChatRepo): Promise<DashboardStats> {
-  const active: EscrowStatus[] = ["REQUESTED", "ACCEPTED", "FUNDED", "DISPUTED"];
+  // 분쟁(DISPUTED)은 disputedEscrows로 따로 세므로 활성 집계에서 제외 — 두 카드가 겹치지 않게.
+  const active: EscrowStatus[] = ["REQUESTED", "ACCEPTED", "FUNDED"];
   const [users, suspended, selling, reserved, sold, activeEscrows, disputedEscrows, openReports] =
     await Promise.all([
       db.user.count({ where: { deletedAt: null } }),
