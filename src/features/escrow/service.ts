@@ -90,15 +90,16 @@ export async function counterEscrow(
 ): Promise<void> {
   assertAmount(amount);
   const e = await loadParticipant(db, id, actorId);
+  // 빠른 실패(좋은 에러 메시지)용 선검사. 실제 원자성은 아래 updateMany의 status·turn 조건이 강제한다.
   if (e.status !== "REQUESTED") throw new AppError("INVALID_TRANSITION", "지금은 금액을 바꿀 수 없어요.", 409);
   if (e.lastProposerId === actorId) throw new AppError("NOT_YOUR_TURN", "상대의 답을 기다리는 중이에요.", 400);
-  await db.escrow.update({
-    where: { id },
-    data: {
-      amount,
-      lastProposerId: actorId,
-      events: { create: { actorId, from: "REQUESTED", to: "REQUESTED", amount } },
-    },
+  await db.$transaction(async (tx) => {
+    const n = await tx.escrow.updateMany({
+      where: { id, status: "REQUESTED", lastProposerId: { not: actorId } },
+      data: { amount, lastProposerId: actorId },
+    });
+    if (n.count !== 1) throw new AppError("NOT_YOUR_TURN", "상대의 답을 기다리는 중이에요.", 400);
+    await tx.escrowEvent.create({ data: { escrowId: id, actorId, from: "REQUESTED", to: "REQUESTED", amount } });
   });
 }
 
@@ -107,12 +108,14 @@ export async function acceptEscrow(db: EscrowDb, actorId: string, id: string): P
   const e = await loadParticipant(db, id, actorId);
   assertTransition(e.status, "ACCEPTED");
   if (e.lastProposerId === actorId) throw new AppError("CANNOT_ACCEPT_OWN", "내 제안은 상대가 수락해요.", 400);
-  await db.escrow.update({
-    where: { id },
-    data: {
-      status: "ACCEPTED",
-      events: { create: { actorId, from: e.status, to: "ACCEPTED", amount: e.amount } },
-    },
+  await db.$transaction(async (tx) => {
+    // 조건부 쓰기: REQUESTED이고 내가 마지막 제안자가 아닐 때만. 동시 counter/accept 경합을 원자적으로 차단.
+    const n = await tx.escrow.updateMany({
+      where: { id, status: "REQUESTED", lastProposerId: { not: actorId } },
+      data: { status: "ACCEPTED" },
+    });
+    if (n.count !== 1) throw new AppError("INVALID_TRANSITION", "지금은 수락할 수 없어요.", 409);
+    await tx.escrowEvent.create({ data: { escrowId: id, actorId, from: "REQUESTED", to: "ACCEPTED", amount: e.amount } });
   });
 }
 
@@ -120,65 +123,83 @@ export async function acceptEscrow(db: EscrowDb, actorId: string, id: string): P
 export async function cancelEscrow(db: EscrowDb, actorId: string, id: string): Promise<void> {
   const e = await loadParticipant(db, id, actorId);
   assertTransition(e.status, "CANCELLED"); // FUNDED/DISPUTED/종착에서는 409
-  await db.escrow.update({
-    where: { id },
-    data: {
-      status: "CANCELLED",
-      events: { create: { actorId, from: e.status, to: "CANCELLED" } },
-    },
+  await db.$transaction(async (tx) => {
+    const n = await tx.escrow.updateMany({
+      where: { id, status: { in: ["REQUESTED", "ACCEPTED"] } },
+      data: { status: "CANCELLED" },
+    });
+    if (n.count !== 1) throw new AppError("INVALID_TRANSITION", "지금은 취소할 수 없어요.", 409);
+    await tx.escrowEvent.create({ data: { escrowId: id, actorId, from: e.status, to: "CANCELLED" } });
   });
 }
 
 /**
  * 대금 보관(구매자만). 합의된 금액을 에스크로가 보관한다(데모: 목 보관 — 실 이체 아님).
  * 상품 상태(SELLING→RESERVED)와 에스크로 상태를 한 트랜잭션으로 갱신한다.
- * 트랜잭션 안에서 상품이 여전히 SELLING인지 재확인 → 같은 상품 이중 보관을 막는다(409).
+ *
+ * 이중 보관 방지(중점): 상품 상태를 "SELLING일 때만" 조건부(updateMany)로 RESERVED로 바꾸고
+ * 실제 갱신 행 수(count)를 확인한다. 비잠금 SELECT 후 무조건 UPDATE였다면 두 구매자가 동시에
+ * 같은 상품을 입금할 수 있으나(READ COMMITTED), 조건부 쓰기는 둘 중 하나만 성공(count=1)한다.
  */
 export async function fundEscrow(db: EscrowDb, buyerId: string, id: string): Promise<void> {
   const e = await loadParticipant(db, id, buyerId);
   if (e.buyerId !== buyerId) throw forbidden(); // 판매자는 입금할 수 없다
   assertTransition(e.status, "FUNDED");
   await db.$transaction(async (tx) => {
-    const product = await tx.product.findUnique({
-      where: { id: e.productId },
-      select: { status: true, deletedAt: true },
+    const p = await tx.product.updateMany({
+      where: { id: e.productId, status: "SELLING", deletedAt: null },
+      data: { status: "RESERVED" },
     });
-    if (!product || product.deletedAt) throw notFound();
-    if (product.status !== "SELLING")
-      throw new AppError("PRODUCT_UNAVAILABLE", "이미 다른 거래가 진행 중이에요.", 409);
-    await tx.product.update({ where: { id: e.productId }, data: { status: "RESERVED" } });
-    await tx.escrow.update({ where: { id }, data: { status: "FUNDED", fundedAt: new Date() } });
-    await tx.escrowEvent.create({ data: { escrowId: id, actorId: buyerId, from: e.status, to: "FUNDED", amount: e.amount } });
+    if (p.count !== 1) throw new AppError("PRODUCT_UNAVAILABLE", "이미 다른 거래가 진행 중이에요.", 409);
+    const n = await tx.escrow.updateMany({
+      where: { id, status: "ACCEPTED" },
+      data: { status: "FUNDED", fundedAt: new Date() },
+    });
+    if (n.count !== 1) throw new AppError("INVALID_TRANSITION", "지금은 입금할 수 없어요.", 409); // 상품 RESERVED도 롤백
+    await tx.escrowEvent.create({ data: { escrowId: id, actorId: buyerId, from: "ACCEPTED", to: "FUNDED", amount: e.amount } });
   });
 }
 
 /**
  * 수령 확인 → 판매자 정산(구매자만). 구매자가 물건을 받았다고 확인하면 보관 대금을 판매자에게 정산한다.
  * 상품 RESERVED→SOLD와 에스크로 FUNDED→RELEASED를 한 트랜잭션으로.
+ *
+ * 이중 정산·정산/반환 경합 방지(중점): FUNDED일 때만 조건부로 RELEASED로 바꾸고 count를 확인한다.
+ * 동시 confirm+refund가 각각 사전읽기에서 FUNDED를 보더라도, 에스크로 조건부 쓰기는 하나만 성공한다.
+ * (DISPUTED에서 참여자가 정산하지 못하도록 소스 상태도 명시적으로 FUNDED로 제한 — 조정은 관리자만.)
  */
 export async function confirmReceipt(db: EscrowDb, buyerId: string, id: string): Promise<void> {
   const e = await loadParticipant(db, id, buyerId);
   if (e.buyerId !== buyerId) throw forbidden(); // 수령확인은 구매자만
-  assertTransition(e.status, "RELEASED");
+  if (e.status !== "FUNDED") throw new AppError("INVALID_TRANSITION", "지금은 수령확인할 수 없어요.", 409);
   await db.$transaction(async (tx) => {
-    await tx.product.update({ where: { id: e.productId }, data: { status: "SOLD" } });
-    await tx.escrow.update({ where: { id }, data: { status: "RELEASED", releasedAt: new Date() } });
-    await tx.escrowEvent.create({ data: { escrowId: id, actorId: buyerId, from: e.status, to: "RELEASED", amount: e.amount } });
+    const n = await tx.escrow.updateMany({
+      where: { id, status: "FUNDED" },
+      data: { status: "RELEASED", releasedAt: new Date() },
+    });
+    if (n.count !== 1) throw new AppError("INVALID_TRANSITION", "지금은 수령확인할 수 없어요.", 409);
+    await tx.product.updateMany({ where: { id: e.productId }, data: { status: "SOLD" } });
+    await tx.escrowEvent.create({ data: { escrowId: id, actorId: buyerId, from: "FUNDED", to: "RELEASED", amount: e.amount } });
   });
 }
 
 /**
  * 대금 반환(판매자만). 판매자가 거래를 무르면 보관 대금을 구매자에게 반환하고 상품을 다시 판매중으로.
  * 상품 RESERVED→SELLING과 에스크로 FUNDED→REFUNDED를 한 트랜잭션으로.
+ * (confirm과 동일하게 소스 FUNDED 조건부 쓰기 — 이중 반환·정산 경합 차단, DISPUTED 우회 차단.)
  */
 export async function refundEscrow(db: EscrowDb, sellerId: string, id: string): Promise<void> {
   const e = await loadParticipant(db, id, sellerId);
   if (e.sellerId !== sellerId) throw forbidden(); // 반환은 판매자만
-  assertTransition(e.status, "REFUNDED");
+  if (e.status !== "FUNDED") throw new AppError("INVALID_TRANSITION", "지금은 반환할 수 없어요.", 409);
   await db.$transaction(async (tx) => {
-    await tx.product.update({ where: { id: e.productId }, data: { status: "SELLING" } });
-    await tx.escrow.update({ where: { id }, data: { status: "REFUNDED", refundedAt: new Date() } });
-    await tx.escrowEvent.create({ data: { escrowId: id, actorId: sellerId, from: e.status, to: "REFUNDED", amount: e.amount } });
+    const n = await tx.escrow.updateMany({
+      where: { id, status: "FUNDED" },
+      data: { status: "REFUNDED", refundedAt: new Date() },
+    });
+    if (n.count !== 1) throw new AppError("INVALID_TRANSITION", "지금은 반환할 수 없어요.", 409);
+    await tx.product.updateMany({ where: { id: e.productId }, data: { status: "SELLING" } });
+    await tx.escrowEvent.create({ data: { escrowId: id, actorId: sellerId, from: "FUNDED", to: "REFUNDED", amount: e.amount } });
   });
 }
 
@@ -190,20 +211,25 @@ export async function disputeEscrow(
   note?: string,
 ): Promise<void> {
   const e = await loadParticipant(db, id, actorId);
-  assertTransition(e.status, "DISPUTED");
+  assertTransition(e.status, "DISPUTED"); // FUNDED에서만
   const trimmed = typeof note === "string" ? note.trim().slice(0, 500) : null;
-  await db.escrow.update({
-    where: { id },
-    data: {
-      status: "DISPUTED",
-      events: { create: { actorId, from: e.status, to: "DISPUTED", note: trimmed || null } },
-    },
+  await db.$transaction(async (tx) => {
+    const n = await tx.escrow.updateMany({
+      where: { id, status: "FUNDED" },
+      data: { status: "DISPUTED" },
+    });
+    if (n.count !== 1) throw new AppError("INVALID_TRANSITION", "지금은 분쟁을 열 수 없어요.", 409);
+    await tx.escrowEvent.create({ data: { escrowId: id, actorId, from: "FUNDED", to: "DISPUTED", note: trimmed || null } });
   });
 }
 
 /**
  * 분쟁 조정(관리자만 — 라우트에서 requireAdmin으로 게이트). release면 판매자 정산, refund면 구매자 반환.
  * 상품 상태도 결정에 맞춰(release→SOLD, refund→SELLING) 한 트랜잭션으로 갱신한다.
+ *
+ * 소스 상태를 DISPUTED로 명시 제한한다 — FUNDED→RELEASED는 assertTransition상 유효하므로,
+ * 명시하지 않으면 관리자가 분쟁이 아닌 보관 거래를 구매자 수령확인 없이 정산해버릴 수 있다.
+ * 조건부 쓰기(count)로 이중 조정도 막는다.
  */
 export async function resolveDispute(
   db: EscrowDb,
@@ -219,18 +245,15 @@ export async function resolveDispute(
     select: { status: true, productId: true, amount: true },
   });
   if (!e) throw notFound();
-  // 조정은 분쟁 상태에서만 — FUNDED→RELEASED는 assertTransition상 유효하므로,
-  // 여기서 DISPUTED를 명시적으로 요구하지 않으면 관리자가 분쟁이 아닌 보관 거래를
-  // 구매자 수령확인 없이 정산해버릴 수 있다.
   if (e.status !== "DISPUTED") throw new AppError("INVALID_TRANSITION", "분쟁 상태의 거래만 조정할 수 있어요.", 409);
   const next: EscrowStatus = resolution === "release" ? "RELEASED" : "REFUNDED";
-  assertTransition(e.status, next);
   const productStatus = resolution === "release" ? "SOLD" : "SELLING";
   const stamp = resolution === "release" ? { releasedAt: new Date() } : { refundedAt: new Date() };
   await db.$transaction(async (tx) => {
-    await tx.product.update({ where: { id: e.productId }, data: { status: productStatus } });
-    await tx.escrow.update({ where: { id }, data: { status: next, ...stamp } });
-    await tx.escrowEvent.create({ data: { escrowId: id, actorId: adminId, from: e.status, to: next, amount: e.amount, note: "관리자 조정" } });
+    const n = await tx.escrow.updateMany({ where: { id, status: "DISPUTED" }, data: { status: next, ...stamp } });
+    if (n.count !== 1) throw new AppError("INVALID_TRANSITION", "지금은 조정할 수 없어요.", 409);
+    await tx.product.updateMany({ where: { id: e.productId }, data: { status: productStatus } });
+    await tx.escrowEvent.create({ data: { escrowId: id, actorId: adminId, from: "DISPUTED", to: next, amount: e.amount, note: "관리자 조정" } });
   });
 }
 
