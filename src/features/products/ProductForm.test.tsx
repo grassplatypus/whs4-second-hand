@@ -109,6 +109,64 @@ describe("ProductForm — create mode", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(ko.product.invalidImage);
     expect(screen.queryByText("leaky server text")).not.toBeInTheDocument();
   });
+
+  it("shows a proactive warning banner with a link to /settings/location when hasLocation is false", () => {
+    render(
+      <NextIntlClientProvider locale="ko" messages={ko}>
+        <ProductForm mode="create" hasLocation={false} />
+      </NextIntlClientProvider>,
+    );
+    expect(screen.getByText(ko.product.noLocation)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: ko.product.goToLocationSettings })).toHaveAttribute(
+      "href",
+      "/settings/location",
+    );
+  });
+
+  it("does not show the proactive warning banner when hasLocation is true", () => {
+    render(
+      <NextIntlClientProvider locale="ko" messages={ko}>
+        <ProductForm mode="create" hasLocation={true} />
+      </NextIntlClientProvider>,
+    );
+    expect(screen.queryByText(ko.product.noLocation)).not.toBeInTheDocument();
+  });
+
+  it("warns via beforeunload when the form has unsaved edits, and confirms before cancel navigates away", async () => {
+    const user = userEvent.setup();
+    renderCreate();
+
+    await user.type(screen.getByLabelText(ko.product.titleLabel), "아이폰");
+
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(true);
+
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    await user.click(screen.getByRole("button", { name: ko.product.cancelButton }));
+    expect(confirmSpy).toHaveBeenCalledWith(ko.product.unsavedChangesConfirm);
+    expect(push).not.toHaveBeenCalled();
+
+    confirmSpy.mockReturnValue(true);
+    await user.click(screen.getByRole("button", { name: ko.product.cancelButton }));
+    expect(push).toHaveBeenCalledWith("/products");
+    confirmSpy.mockRestore();
+  });
+
+  it("does not warn on beforeunload nor confirm on cancel when the form is untouched", async () => {
+    const user = userEvent.setup();
+    renderCreate();
+
+    const event = new Event("beforeunload", { cancelable: true });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+
+    const confirmSpy = vi.spyOn(window, "confirm");
+    await user.click(screen.getByRole("button", { name: ko.product.cancelButton }));
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(push).toHaveBeenCalledWith("/products");
+    confirmSpy.mockRestore();
+  });
 });
 
 describe("ProductForm — edit mode", () => {

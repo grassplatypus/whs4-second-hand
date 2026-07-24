@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
+import { Card, PageHeader, Field, Input, Select, Button } from "@/features/shell/ui";
 import { CATEGORIES } from "./categories";
 
 export interface ProductFormInitial {
@@ -21,18 +22,26 @@ const ERROR_KEYS: Record<string, string> = {
   UPLOAD_FAILED: "invalidImage",
 };
 
+const textareaClass =
+  "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition-colors placeholder:text-zinc-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100";
+
 /**
  * 등록/수정 겸용 폼. 이미지 업로드는 등록(create) 모드에서만 연다 — 서버의 수정 스키마
  * (productUpdateSchema)가 images를 애초에 받지 않기 때문(후속 태스크 소관, service.ts 주석 참고).
+ *
+ * hasLocation: 등록 페이지가 서버에서 미리 조회해 내려준다 — 판매자의 동네가 아직 없으면
+ * 폼을 채우기 전부터 배너로 안내한다(실제 차단은 언제나 서버의 NO_LOCATION 응답이 최종 판단).
  */
 export function ProductForm({
   mode,
   productId,
   initial,
+  hasLocation,
 }: {
   mode: "create" | "edit";
   productId?: string;
   initial?: ProductFormInitial;
+  hasLocation?: boolean;
 }) {
   const t = useTranslations("product");
   const router = useRouter();
@@ -48,6 +57,41 @@ export function ProductForm({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [noLocation, setNoLocation] = useState(false);
+  const [submitted, setSubmitted] = useState(false);
+
+  const initialSnapshot = useRef(
+    JSON.stringify({
+      title: initial?.title ?? "",
+      price: initial ? String(initial.price) : "0",
+      category: initial?.category ?? CATEGORIES[0],
+      description: initial?.description ?? "",
+      directPlace: initial?.directPlace ?? "",
+      images: initial?.images?.map((i) => i.path) ?? [],
+    }),
+  );
+  const dirty =
+    !submitted &&
+    JSON.stringify({ title, price, category, description, directPlace, images }) !== initialSnapshot.current;
+
+  // 탭을 닫거나 새로고침할 때: 저장하지 않은 편집 내용이 있으면 브라우저 기본 확인창을 띄운다.
+  useEffect(() => {
+    function onBeforeUnload(event: BeforeUnloadEvent) {
+      if (!dirty) return;
+      event.preventDefault();
+      event.returnValue = "";
+    }
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [dirty]);
+
+  function goBack() {
+    router.push(mode === "create" ? "/products" : `/products/${productId}`);
+  }
+
+  function onCancel() {
+    if (dirty && !window.confirm(t("unsavedChangesConfirm"))) return;
+    goBack();
+  }
 
   async function onFileChange(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -109,6 +153,7 @@ export function ProductForm({
         return;
       }
 
+      setSubmitted(true);
       if (mode === "create") {
         const body = (await res.json()) as { id: string };
         router.push(`/products/${body.id}`);
@@ -123,97 +168,103 @@ export function ProductForm({
   }
 
   return (
-    <form onSubmit={submit} className="flex w-full max-w-md flex-col gap-3" noValidate>
-      <h1 className="text-xl font-semibold">{mode === "create" ? t("newTitle") : t("editTitle")}</h1>
+    <div className="flex w-full max-w-2xl flex-col gap-5">
+      <PageHeader title={mode === "create" ? t("newTitle") : t("editTitle")} />
 
-      <label className="flex flex-col gap-1">
-        {t("titleLabel")}
-        <input value={title} onChange={(e) => setTitle(e.target.value)} className="rounded border px-2 py-1" />
-      </label>
-
-      <label className="flex flex-col gap-1">
-        {t("price")}
-        <input
-          type="number"
-          value={price}
-          onChange={(e) => setPrice(e.target.value)}
-          className="rounded border px-2 py-1"
-        />
-      </label>
-
-      <label className="flex flex-col gap-1">
-        {t("categoryLabel")}
-        <select value={category} onChange={(e) => setCategory(e.target.value)} className="rounded border px-2 py-1">
-          {CATEGORIES.map((c) => (
-            <option key={c} value={c}>
-              {t(`category.${c}`)}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <label className="flex flex-col gap-1">
-        {t("description")}
-        <textarea
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          className="rounded border px-2 py-1"
-        />
-      </label>
-
-      <label className="flex flex-col gap-1">
-        {t("directPlace")}
-        <input
-          value={directPlace}
-          onChange={(e) => setDirectPlace(e.target.value)}
-          className="rounded border px-2 py-1"
-        />
-      </label>
-
-      {mode === "create" && (
-        <div className="flex flex-col gap-2">
-          <label className="flex flex-col gap-1">
-            {t("addImage")}
-            <input type="file" accept="image/*" onChange={(e) => void onFileChange(e)} disabled={uploading} />
-          </label>
-          {images.length > 0 && (
-            <ul className="flex flex-wrap gap-2">
-              {images.map((path) => (
-                <li key={path} className="flex flex-col items-center gap-1">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={`/api/media/${path}`} alt="" className="h-16 w-16 rounded object-cover" />
-                  <button type="button" onClick={() => removeImage(path)} className="text-xs text-red-600">
-                    {t("deleteButton")}
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+      {hasLocation === false && (
+        <div className="flex flex-col gap-1 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200">
+          <span>{t("noLocation")}</span>
+          <a href="/settings/location" className="font-medium underline">
+            {t("goToLocationSettings")}
+          </a>
         </div>
       )}
 
-      <button
-        type="submit"
-        disabled={submitting || uploading}
-        className="rounded bg-black px-3 py-2 text-white disabled:opacity-50"
-      >
-        {mode === "create" ? t("createButton") : t("editButton")}
-      </button>
+      <Card>
+        <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
+          <Field label={t("titleLabel")}>
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} />
+          </Field>
 
-      {noLocation && (
-        <p role="alert" className="flex flex-col gap-1 text-sm text-red-600">
-          {t("noLocation")}
-          <a href="/settings/location" className="text-blue-600 underline">
-            {t("goToLocationSettings")}
-          </a>
-        </p>
-      )}
+          <Field label={t("price")}>
+            <Input type="number" min={0} value={price} onChange={(e) => setPrice(e.target.value)} />
+          </Field>
 
-      {error && (
-        <p role="alert" className="text-sm text-red-600">
-          {error}
-        </p>
-      )}
-    </form>
+          <Field label={t("categoryLabel")}>
+            <Select value={category} onChange={(e) => setCategory(e.target.value)}>
+              {CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {t(`category.${c}`)}
+                </option>
+              ))}
+            </Select>
+          </Field>
+
+          <Field label={t("description")}>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={5}
+              className={textareaClass}
+            />
+          </Field>
+
+          <Field label={t("directPlace")}>
+            <Input value={directPlace} onChange={(e) => setDirectPlace(e.target.value)} />
+          </Field>
+
+          {mode === "create" && (
+            <div className="flex flex-col gap-2">
+              <Field label={t("addImage")}>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={(e) => void onFileChange(e)}
+                  disabled={uploading}
+                  className="text-sm text-zinc-600 dark:text-zinc-300"
+                />
+              </Field>
+              {images.length > 0 && (
+                <ul className="flex flex-wrap gap-2">
+                  {images.map((path) => (
+                    <li key={path} className="flex flex-col items-center gap-1">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={`/api/media/${path}`} alt="" className="h-16 w-16 rounded-lg object-cover" />
+                      <button type="button" onClick={() => removeImage(path)} className="text-xs text-red-600">
+                        {t("deleteButton")}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          <div className="flex gap-2 pt-2">
+            <Button type="submit" disabled={submitting || uploading}>
+              {mode === "create" ? t("createButton") : t("editButton")}
+            </Button>
+            <Button type="button" variant="secondary" onClick={onCancel}>
+              {t("cancelButton")}
+            </Button>
+          </div>
+
+          {noLocation && (
+            <p role="alert" className="flex flex-col gap-1 text-sm text-red-600">
+              {t("noLocation")}
+              <a href="/settings/location" className="text-blue-600 underline">
+                {t("goToLocationSettings")}
+              </a>
+            </p>
+          )}
+
+          {error && (
+            <p role="alert" className="text-sm text-red-600">
+              {error}
+            </p>
+          )}
+        </form>
+      </Card>
+    </div>
   );
 }

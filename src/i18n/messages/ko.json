@@ -275,7 +275,15 @@
     "notFound": "상품을 찾을 수 없어요",
     "forbidden": "권한이 없어요",
     "invalidTransition": "바꿀 수 없는 상태예요",
-    "invalidImage": "이미지를 처리할 수 없어요"
+    "invalidImage": "이미지를 처리할 수 없어요",
+    "statusFilterLabel": "상태",
+    "statusAll": "전체",
+    "locationDenied": "위치 권한이 필요해요 · 반경 미적용",
+    "resetFilters": "필터 초기화",
+    "emptyCta": "상품 등록하러 가기",
+    "backToList": "목록으로",
+    "cancelButton": "취소",
+    "unsavedChangesConfirm": "작성 중인 내용이 있어요. 정말 나가시겠어요?"
   },
   "chat": {
     "listTitle": "채팅",

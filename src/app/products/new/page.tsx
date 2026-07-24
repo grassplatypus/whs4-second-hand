@@ -11,9 +11,16 @@ export default async function NewProductPage() {
   const current = await currentUserFromRefresh(prisma, token);
   if (!current) redirect("/login?error=login_required");
 
+  // 동네가 없으면 서버(createProduct)가 NO_LOCATION으로 막지만, 폼을 채우기 전에 미리 안내한다.
+  const seller = await prisma.user.findUnique({
+    where: { id: current.userId },
+    select: { lat: true, lng: true },
+  });
+  const hasLocation = seller?.lat != null && seller?.lng != null;
+
   return (
     <main className="flex flex-1 flex-col items-center gap-6 py-12">
-      <ProductForm mode="create" />
+      <ProductForm mode="create" hasLocation={hasLocation} />
     </main>
   );
 }
