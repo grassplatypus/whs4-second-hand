@@ -146,3 +146,13 @@ docker compose exec -T db psql -U app -d app -c 'SELECT u.nickname, s."revokedAt
 - **setPassword TOCTOU(태스크 2 Minor 이관, 미해결)** — 두 탭에서 동시에 첫 비번 설정을 시도하는 경합. 이번 태스크에서 새로 확인하거나 고치지 않았다.
 - **OAuth-only 비번설정→연동해제 end-to-end E2E 부재(4절)** — 새 갭이 아니라 이번 태스크 지시를 따른 의도적 축소. 유닛+기존 `oauth.spec.ts`로 조각조각 커버돼 있다.
 - **최종 브랜치 opus 리뷰** — #1a-ext-1·#1a-ext-2·#1b의 선례처럼 태스크 1~5 전체를 가로지르는 교차 리뷰는 아직 수행되지 않았다. 이 워크로그는 태스크 5(E2E)까지의 기록이며, 최종 리뷰는 별도 단계로 남아 있다.
+
+## 최종 whole-branch 리뷰(opus) → 검토 중점·수정
+
+Critical 0. 검토 중점 전부 견고: 상대 프로필 PII 경계 구조적(select 자체서 민감 컬럼 배제), step-up 4라우트 균일(auth→requireRecentAuth→userId-match), changePassword 현재세션 sparing(tokenHash 재해싱)·타 세션 폐기, withdraw 전 세션 폐기+쿠키 삭제.
+
+**Important 수정(P2002 회귀 가드 실화):** 실 `@prisma/adapter-pg`는 `constraint`를 **객체**(`{fields:[]}`/`{index:"..."}`)로 방출하는데, 초기 수정은 문자열만 처리하는 죽은 분기 + 넓은 fallback으로 런타임만 맞았다(단위목이 문자열 shape라 회귀 가드 허구). 실 객체 shape를 명시 처리하고 그 shape를 1차 테스트로, fallback은 노이즈 토큰 제외. 이 헬퍼는 #2~#7이 의존하므로 실화 필수였다. 440 unit green.
+
+**교훈:** 단위 목이 실제 어댑터 에러 shape와 달라 500 버그가 숨었고 실DB E2E가 포착 → 목 기반 검증의 한계, 통합 E2E의 가치.
+
+이관(저위험): setPassword 자기계정 TOCTOU, withdraw 비원자(soft-delete 특성상 수용), 탈퇴 가드 no-op 스텁(#3/#5/#7 주입).
