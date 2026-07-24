@@ -12,8 +12,11 @@ import { Avatar } from "@/features/shell/Avatar";
 export interface ChatListItem {
   conversationId: string;
   otherNickname: string;
+  otherAvatarPath?: string | null;
   product: { id: string; title: string };
   lastMessageAt: string;
+  /** 내가 마지막으로 본 뒤 상대가 보낸 메시지 수 — 0이면 뱃지를 숨긴다. */
+  unreadCount?: number;
 }
 
 /** lastMessageAt을 사람이 읽기 좋은 상대/짧은 날짜로 바꾼다 — 파싱 실패(NaN)는 "—"로 방어한다. */
@@ -118,7 +121,7 @@ export function ChatList() {
             <li key={item.conversationId}>
               <a href={`/chat/${item.conversationId}`} className="block">
                 <Card className="flex items-center gap-3 transition-colors hover:border-emerald-300 hover:bg-emerald-50/50 dark:hover:border-emerald-800 dark:hover:bg-emerald-950/20">
-                  <Avatar nickname={item.otherNickname} size={44} />
+                  <Avatar nickname={item.otherNickname} src={item.otherAvatarPath ?? null} size={44} />
                   <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <div className="flex items-center justify-between gap-2">
                       <span className="truncate font-semibold text-zinc-900 dark:text-zinc-50">
@@ -128,7 +131,17 @@ export function ChatList() {
                         {formatWhen(item.lastMessageAt, locale)}
                       </span>
                     </div>
-                    <span className="truncate text-sm text-zinc-500 dark:text-zinc-400">{item.otherNickname}</span>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate text-sm text-zinc-500 dark:text-zinc-400">{item.otherNickname}</span>
+                      {(item.unreadCount ?? 0) > 0 && (
+                        <span
+                          aria-label={t("unreadCount", { count: item.unreadCount ?? 0 })}
+                          className="shrink-0 rounded-full bg-emerald-600 px-2 py-0.5 text-xs font-semibold text-white"
+                        >
+                          {(item.unreadCount ?? 0) > 99 ? "99+" : item.unreadCount}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </Card>
               </a>

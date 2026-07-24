@@ -342,6 +342,7 @@
     "firstMsgTextOnly": "The first message must be text",
     "imageBeforeReply": "You can't send a photo until the other person replies",
     "emptyCta": "Browse products",
+    "unreadCount": "{count} unread messages",
     "reportReasonLegend": "Pick a reason",
     "reportDetailLabel": "More details (optional)",
     "reportReason": {

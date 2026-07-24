@@ -342,6 +342,7 @@
     "firstMsgTextOnly": "첫 메시지는 글로 보내 주세요",
     "imageBeforeReply": "상대가 답하기 전에는 사진을 보낼 수 없어요",
     "emptyCta": "상품 보러가기",
+    "unreadCount": "안 읽은 메시지 {count}개",
     "reportReasonLegend": "신고 사유를 골라 주세요",
     "reportDetailLabel": "자세한 내용(선택)",
     "reportReason": {
