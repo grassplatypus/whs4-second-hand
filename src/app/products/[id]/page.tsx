@@ -4,6 +4,7 @@ import { prisma } from "@/features/_shared/prisma";
 import { AppError } from "@/features/_shared/error";
 import { currentUserFromRefresh } from "@/features/auth/session";
 import { REFRESH_COOKIE } from "@/features/auth/cookies";
+import { PageContainer } from "@/features/shell/ui";
 import { getProduct } from "@/features/products/service";
 import { ProductDetail, type ProductDetailView } from "@/features/products/ProductDetail";
 
@@ -47,8 +48,8 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
   };
 
   return (
-    <main className="flex flex-1 flex-col items-center gap-6 py-12">
+    <PageContainer size="lg" className="items-center">
       <ProductDetail product={view} isOwner={isOwner} />
-    </main>
+    </PageContainer>
   );
 }

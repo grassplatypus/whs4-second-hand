@@ -127,6 +127,11 @@ export function ProductDetail({ product, isOwner }: { product: ProductDetailView
         body: JSON.stringify({ productId: product.id, firstText }),
       });
       if (!res.ok) {
+        // 로그아웃 상태에서 채팅을 시도한 경우 — 알 수 없는 에러로 뭉개지 말고 로그인으로 보낸다.
+        if (res.status === 401) {
+          router.push("/login?error=login_required");
+          return;
+        }
         const body = await res.json().catch(() => ({ code: undefined }));
         setError(tc(CHAT_ERROR_KEYS[body.code] ?? "failed"));
         return;
@@ -157,6 +162,11 @@ export function ProductDetail({ product, isOwner }: { product: ProductDetailView
         body: JSON.stringify({ productId: product.id, amount }),
       });
       if (!res.ok) {
+        // 로그아웃 상태에서 안전거래를 시도한 경우 — 알 수 없는 에러로 뭉개지 말고 로그인으로 보낸다.
+        if (res.status === 401) {
+          router.push("/login?error=login_required");
+          return;
+        }
         const body = await res.json().catch(() => ({ code: undefined }));
         setError(te(ESCROW_ERROR_KEYS[body.code] ?? "failed"));
         return;
@@ -288,6 +298,14 @@ export function ProductDetail({ product, isOwner }: { product: ProductDetailView
                   ))}
                 </div>
               )}
+
+              {/* 숨긴 상품에 다시 접근해 복원할 수 있는 유일한 통로 — 공개 목록/상세는 숨긴 상품을 보여주지 않는다. */}
+              <a
+                href="/products/mine"
+                className="inline-flex w-fit items-center text-sm text-zinc-500 underline hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+              >
+                {t("myListingsLink")}
+              </a>
             </div>
           ) : (
             <div className="flex flex-col gap-2">

@@ -96,6 +96,19 @@ describe("ProductDetail", () => {
     expect(push).not.toHaveBeenCalled();
   });
 
+  it("guest CTA: a 401 from the chat endpoint sends the user to /login instead of showing a generic error", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonFail(401, "UNAUTHENTICATED")));
+    const user = userEvent.setup();
+    renderIt(product, false);
+
+    await user.click(screen.getByRole("button", { name: ko.product.chat }));
+    await user.type(screen.getByPlaceholderText(ko.chat.composePlaceholder), "hi");
+    await user.click(screen.getByRole("button", { name: ko.chat.send }));
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/login?error=login_required"));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("owner: never shows a chat button or compose form", () => {
     renderIt(product, true);
     expect(screen.queryByRole("button", { name: ko.product.chat })).not.toBeInTheDocument();
@@ -143,6 +156,18 @@ describe("ProductDetail", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(ko.escrow.selfTrade);
     expect(screen.queryByText("leaky server text")).not.toBeInTheDocument();
     expect(push).not.toHaveBeenCalled();
+  });
+
+  it("guest CTA: a 401 from the escrow endpoint sends the user to /login instead of showing a generic error", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonFail(401, "UNAUTHENTICATED")));
+    const user = userEvent.setup();
+    renderIt(product, false);
+
+    await user.click(screen.getByRole("button", { name: ko.escrow.request }));
+    await user.click(screen.getByRole("button", { name: ko.escrow.requestSubmit }));
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/login?error=login_required"));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("shows edit/delete/status controls for the owner, and never a chat button", () => {

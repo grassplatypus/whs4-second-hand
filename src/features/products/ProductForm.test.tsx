@@ -81,6 +81,49 @@ describe("ProductForm — create mode", () => {
     await waitFor(() => expect(push).toHaveBeenCalledWith("/products/p9"));
   });
 
+  it("groups the price with thousands commas as the user types, but submits a plain number", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonOk({ id: "p9" })));
+    const user = userEvent.setup();
+    renderCreate();
+
+    const priceInput = screen.getByLabelText(ko.product.price);
+    await user.clear(priceInput);
+    await user.type(priceInput, "1234000");
+
+    expect(priceInput).toHaveValue("1,234,000");
+
+    await user.type(screen.getByLabelText(ko.product.titleLabel), "노트북 팝니다");
+    await user.click(screen.getByRole("button", { name: ko.product.createButton }));
+
+    await waitFor(() => {
+      const call = (fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls[0];
+      const body = JSON.parse((call[1] as RequestInit).body as string);
+      expect(body.price).toBe(1234000);
+    });
+  });
+
+  it("strips commas/non-digits when the price is pasted in", async () => {
+    const user = userEvent.setup();
+    renderCreate();
+
+    const priceInput = screen.getByLabelText(ko.product.price);
+    await user.clear(priceInput);
+    await user.click(priceInput);
+    await user.paste("1,234,000");
+
+    expect(priceInput).toHaveValue("1,234,000"); // re-formatted display
+    // the underlying state is the plain digit string — verify via a submit.
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonOk({ id: "p9" })));
+    await user.type(screen.getByLabelText(ko.product.titleLabel), "제목");
+    await user.click(screen.getByRole("button", { name: ko.product.createButton }));
+
+    await waitFor(() => {
+      const call = (fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls[0];
+      const body = JSON.parse((call[1] as RequestInit).body as string);
+      expect(body.price).toBe(1234000);
+    });
+  });
+
   it("shows the '위치를 먼저 설정' notice with a link to /settings/location on NO_LOCATION", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonFail(400, "NO_LOCATION")));
     const user = userEvent.setup();
@@ -170,7 +213,7 @@ describe("ProductForm — create mode", () => {
 });
 
 describe("ProductForm — edit mode", () => {
-  it("PATCHes the product's own endpoint with field edits and no images key, then routes to the detail page", async () => {
+  it("PATCHes the product's own endpoint with field edits and the current images array, then routes to the detail page", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonOk({ ok: true })));
     const user = userEvent.setup();
     renderEdit();
@@ -186,13 +229,42 @@ describe("ProductForm — edit mode", () => {
       expect((call[1] as RequestInit).method).toBe("PATCH");
       const body = JSON.parse((call[1] as RequestInit).body as string);
       expect(body.title).toBe("아이폰 급처");
-      expect(body).not.toHaveProperty("images");
+      expect(body.images).toEqual(["products/a.webp"]);
     });
     await waitFor(() => expect(push).toHaveBeenCalledWith("/products/p1"));
   });
 
-  it("does not render an image-upload control in edit mode", () => {
+  it("renders an image-upload control in edit mode, pre-filled with the product's existing images", () => {
     renderEdit();
-    expect(screen.queryByLabelText(ko.product.addImage)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(ko.product.addImage)).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: ko.product.imagePreviewAlt.replace("{index}", "1") })).toHaveAttribute(
+      "src",
+      "/api/media/products/a.webp",
+    );
+  });
+
+  it("uploads a new image and removes an existing one, then PATCHes the updated images array", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonOk({ path: "products/new.webp" }))
+      .mockResolvedValueOnce(jsonOk({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderEdit();
+
+    // 기존 이미지를 지운다 — 인덱스가 매겨진 접근성 이름으로 정확히 그 버튼을 골라야 한다.
+    await user.click(screen.getByRole("button", { name: ko.product.removeImageAria.replace("{index}", "1") }));
+    expect(screen.queryByLabelText(ko.product.imagePreviewAlt.replace("{index}", "1"))).not.toBeInTheDocument();
+
+    const file = new File(["x"], "b.jpg", { type: "image/jpeg" });
+    await user.upload(screen.getByLabelText(ko.product.addImage), file);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    await user.click(screen.getByRole("button", { name: ko.product.editButton }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const call = fetchMock.mock.calls[1];
+    const body = JSON.parse(call[1].body);
+    expect(body.images).toEqual(["products/new.webp"]);
   });
 });

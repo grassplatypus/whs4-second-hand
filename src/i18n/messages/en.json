@@ -328,7 +328,18 @@
     "emptyCta": "List an item",
     "backToList": "Back to list",
     "cancelButton": "Cancel",
-    "unsavedChangesConfirm": "You have unsaved changes. Leave anyway?"
+    "unsavedChangesConfirm": "You have unsaved changes. Leave anyway?",
+    "myListingsTitle": "My listings",
+    "myListingsEmpty": "You haven't listed anything yet",
+    "myListingsLink": "Manage my listings",
+    "hiddenBadge": "Hidden",
+    "hideButton": "Hide",
+    "restoreButton": "Restore",
+    "viewLargeImageAria": "View larger image",
+    "viewLargeImage": "View larger",
+    "thumbnailAria": "Product image {index}",
+    "imagePreviewAlt": "Product image {index} preview",
+    "removeImageAria": "Remove image {index}"
   },
   "chat": {
     "listTitle": "Chat",
