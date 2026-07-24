@@ -167,16 +167,54 @@ describe("sendMessage", () => {
     ).rejects.toMatchObject({ code: "BLOCKED", httpStatus: 403 });
   });
 
-  it("blocks the first message being an image (FIRST_MSG_TEXT_ONLY 400)", async () => {
+  it("blocks the first message being an image — nobody has replied yet (IMAGE_BEFORE_REPLY 400)", async () => {
     const repo = new InMemoryChatRepo();
     const conversation = await setupConversation(repo);
 
     await expect(
       sendMessage(repo, BUYER_ID, conversation._id, { kind: "image", imagePath: "img/1.png" }),
-    ).rejects.toMatchObject({ code: "FIRST_MSG_TEXT_ONLY", httpStatus: 400 });
+    ).rejects.toMatchObject({ code: "IMAGE_BEFORE_REPLY", httpStatus: 400 });
+
+    const messages = await repo.listMessages(conversation._id);
+    expect(messages.length).toBe(0);
   });
 
-  it("allows an image once a first text message exists, and updates lastMessageAt", async () => {
+  it("blocks an image even after several texts, as long as the OTHER participant hasn't replied (IMAGE_BEFORE_REPLY 400)", async () => {
+    const repo = new InMemoryChatRepo();
+    const conversation = await setupConversation(repo);
+
+    await sendMessage(repo, BUYER_ID, conversation._id, { kind: "text", text: "안녕하세요" });
+    await sendMessage(repo, BUYER_ID, conversation._id, { kind: "text", text: "구매하고 싶어요" });
+    await sendMessage(repo, BUYER_ID, conversation._id, { kind: "text", text: "아직 계신가요" });
+
+    await expect(
+      sendMessage(repo, BUYER_ID, conversation._id, { kind: "image", imagePath: "img/1.png" }),
+    ).rejects.toMatchObject({ code: "IMAGE_BEFORE_REPLY", httpStatus: 400 });
+
+    const messages = await repo.listMessages(conversation._id);
+    expect(messages.length).toBe(3);
+    expect(messages.every((m) => m.kind === "text")).toBe(true);
+  });
+
+  it("allows an image once the OTHER participant has sent at least one message, and updates lastMessageAt", async () => {
+    const repo = new InMemoryChatRepo();
+    const conversation = await setupConversation(repo);
+
+    await sendMessage(repo, BUYER_ID, conversation._id, { kind: "text", text: "안녕하세요" });
+    await sendMessage(repo, SELLER_ID, conversation._id, { kind: "text", text: "네 안녕하세요" });
+    const image = await sendMessage(repo, BUYER_ID, conversation._id, {
+      kind: "image",
+      imagePath: "img/1.png",
+    });
+
+    expect(image.kind).toBe("image");
+    expect(image.imagePath).toBe("img/1.png");
+
+    const updated = await repo.getConversation(conversation._id);
+    expect(updated?.lastMessageAt.getTime()).toBeGreaterThanOrEqual(updated!.createdAt.getTime());
+  });
+
+  it("allows the seller to send an image right after the buyer's first message (seller is the 'other' participant who replied)", async () => {
     const repo = new InMemoryChatRepo();
     const conversation = await setupConversation(repo);
 
@@ -188,9 +226,6 @@ describe("sendMessage", () => {
 
     expect(image.kind).toBe("image");
     expect(image.imagePath).toBe("img/1.png");
-
-    const updated = await repo.getConversation(conversation._id);
-    expect(updated?.lastMessageAt.getTime()).toBeGreaterThanOrEqual(updated!.createdAt.getTime());
   });
 
   it("masks profanity in a text message (delivered text has no literal profanity)", async () => {

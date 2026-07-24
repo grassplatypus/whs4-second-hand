@@ -228,6 +228,7 @@
     "blocked": "You can't chat with a blocked user",
     "selfChat": "You can't chat about your own item",
     "firstMsgTextOnly": "The first message must be text",
+    "imageBeforeReply": "You can't send a photo until the other person replies",
     "notFound": "Conversation not found",
     "forbidden": "You don't have permission",
     "emptyMessage": "Please enter a message",

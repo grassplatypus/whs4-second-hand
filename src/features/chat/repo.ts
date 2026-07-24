@@ -65,6 +65,8 @@ export interface ChatRepo {
   getMessage(id: string): Promise<Message | null>;
   listMessages(conversationId: string, opts?: ListMessagesOptions): Promise<Message[]>;
   countMessages(conversationId: string): Promise<number>;
+  /** conversationId 안에서 senderId가 보낸 메시지가 하나라도 있는지 — "상대가 답장했는가" 판단에 쓴다. */
+  hasMessageFrom(conversationId: string, senderId: string): Promise<boolean>;
   isBlocked(blockerId: string, blockedId: string): Promise<boolean>;
   block(blockerId: string, blockedId: string): Promise<void>;
   unblock(blockerId: string, blockedId: string): Promise<void>;
@@ -129,6 +131,10 @@ export class InMemoryChatRepo implements ChatRepo {
 
   async countMessages(conversationId: string): Promise<number> {
     return this.messages.filter((m) => m.conversationId === conversationId).length;
+  }
+
+  async hasMessageFrom(conversationId: string, senderId: string): Promise<boolean> {
+    return this.messages.some((m) => m.conversationId === conversationId && m.senderId === senderId);
   }
 
   async isBlocked(blockerId: string, blockedId: string): Promise<boolean> {
@@ -221,6 +227,12 @@ export class MongoChatRepo implements ChatRepo {
   async countMessages(conversationId: string): Promise<number> {
     const db = await getChatDb();
     return db.collection<Message>(COLLECTIONS.messages).countDocuments({ conversationId });
+  }
+
+  async hasMessageFrom(conversationId: string, senderId: string): Promise<boolean> {
+    const db = await getChatDb();
+    const found = await db.collection<Message>(COLLECTIONS.messages).findOne({ conversationId, senderId });
+    return found !== null;
   }
 
   async isBlocked(blockerId: string, blockedId: string): Promise<boolean> {

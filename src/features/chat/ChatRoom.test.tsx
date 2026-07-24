@@ -141,6 +141,32 @@ describe("ChatRoom", () => {
     expect(screen.queryByText("leaky")).not.toBeInTheDocument();
   });
 
+  it("maps a send IMAGE_BEFORE_REPLY error to the imageBeforeReply catalog message, not the raw server text", async () => {
+    const fetchMock = vi.fn(async (url: unknown, init?: RequestInit) => {
+      const u = String(url);
+      const method = (init?.method ?? "GET").toUpperCase();
+      if (method === "GET") return { ok: true, json: async () => ({ messages: [] }) };
+      if (u.includes("/api/products/images")) {
+        return { ok: true, json: async () => ({ path: "img/1.png" }) };
+      }
+      if (u.includes("/messages")) {
+        return { ok: false, status: 400, json: async () => ({ code: "IMAGE_BEFORE_REPLY", message: "leaky" }) };
+      }
+      return { ok: true, json: async () => ({}) };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderIt();
+
+    await screen.findByText("풀숲여우");
+    const file = new File(["img-bytes"], "photo.png", { type: "image/png" });
+    const input = screen.getByLabelText(ko.chat.imageButton, { selector: "input" }) as HTMLInputElement;
+    await user.upload(input, file);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(ko.chat.imageBeforeReply);
+    expect(screen.queryByText("leaky")).not.toBeInTheDocument();
+  });
+
   it("blocks then unblocks the other user, posting targetId each time", async () => {
     const calls: { url: string; body: unknown }[] = [];
     vi.stubGlobal(

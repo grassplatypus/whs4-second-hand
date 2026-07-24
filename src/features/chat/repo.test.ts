@@ -74,6 +74,31 @@ describe("InMemoryChatRepo", () => {
     expect(limited.map((m) => m._id)).toEqual([second._id]);
   });
 
+  it("hasMessageFrom is true only for senders who actually sent a message in that conversation", async () => {
+    const repo = new InMemoryChatRepo();
+    const conversation = await repo.createConversation(makeConversation());
+    const otherConversation = await repo.createConversation(
+      makeConversation({ productId: "product-2", buyerId: "buyer-2" }),
+    );
+
+    expect(await repo.hasMessageFrom(conversation._id, "buyer-1")).toBe(false);
+    expect(await repo.hasMessageFrom(conversation._id, "seller-1")).toBe(false);
+
+    await repo.insertMessage({
+      conversationId: conversation._id,
+      senderId: "buyer-1",
+      kind: "text",
+      text: "안녕하세요",
+      masked: false,
+      createdAt: new Date(),
+    });
+
+    expect(await repo.hasMessageFrom(conversation._id, "buyer-1")).toBe(true);
+    expect(await repo.hasMessageFrom(conversation._id, "seller-1")).toBe(false);
+    // 다른 대화에 보낸 메시지는 셈에 들어가지 않는다.
+    expect(await repo.hasMessageFrom(otherConversation._id, "buyer-1")).toBe(false);
+  });
+
   it("gets a message by id (including rawText), returns null when missing", async () => {
     const repo = new InMemoryChatRepo();
     const conversation = await repo.createConversation(makeConversation());
