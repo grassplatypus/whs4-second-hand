@@ -1,6 +1,6 @@
 import { prisma } from "@/features/_shared/prisma";
 import { withErrorHandling, AppError } from "@/features/_shared/error";
-import { currentUserFromRefresh } from "@/features/auth/session";
+import { requireActiveUser } from "@/features/auth/rbac";
 import { readRefreshCookie } from "@/features/auth/cookies";
 import { hashRefreshToken } from "@/features/auth/tokens";
 import { requestMeta } from "@/features/auth/audit";
@@ -19,8 +19,7 @@ function authFailed(): AppError {
 // step_up 쿠키는 발급된 userId에 바인딩되어 있어, 다른 유저(refresh 세션)의 재인증으로는 통과할 수 없다.
 export const POST = withErrorHandling(async (req: Request) => {
   const token = readRefreshCookie(req);
-  const current = await currentUserFromRefresh(prisma, token);
-  if (!current) throw new AppError("UNAUTHENTICATED", "로그인이 필요해요.", 401);
+  const current = await requireActiveUser(prisma, req);
   const recent = await requireRecentAuth(req);
   if (recent.userId !== current.userId) throw stepUpRequired();
 

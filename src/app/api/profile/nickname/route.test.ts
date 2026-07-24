@@ -5,8 +5,11 @@ import { REFRESH_COOKIE } from "@/features/auth/cookies";
 
 const currentUserFromRefresh = vi.fn();
 const changeNickname = vi.fn();
+const userFindUnique = vi.fn();
 
-vi.mock("@/features/_shared/prisma", () => ({ prisma: {} }));
+vi.mock("@/features/_shared/prisma", () => ({
+  prisma: { user: { findUnique: (...args: unknown[]) => userFindUnique(...args) } },
+}));
 vi.mock("@/features/auth/session", () => ({ currentUserFromRefresh: (...args: unknown[]) => currentUserFromRefresh(...args) }));
 vi.mock("@/features/profile/account", async () => {
   const actual = await vi.importActual<typeof import("@/features/profile/account")>("@/features/profile/account");
@@ -28,6 +31,8 @@ describe("POST /api/profile/nickname — step-up gating", () => {
   beforeEach(() => {
     currentUserFromRefresh.mockReset();
     changeNickname.mockReset();
+    userFindUnique.mockReset();
+    userFindUnique.mockResolvedValue({ role: "USER", deletedAt: null });
   });
 
   it("401 UNAUTHENTICATED when there's no refresh session (checked before step-up)", async () => {
