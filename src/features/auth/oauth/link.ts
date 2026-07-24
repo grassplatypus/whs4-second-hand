@@ -1,13 +1,10 @@
 import { encryptPII, emailIndex } from "@/features/_shared/crypto";
 import { AppError } from "@/features/_shared/error";
+import { isUniqueViolation } from "@/features/_shared/prisma-error";
 import { createSession, type IssuedSession } from "../session";
 import { AUTH_EVENTS, logAuthEvent, type RequestMeta } from "../audit";
 import type { AuthDb } from "../db";
 import type { OAuthUserInfo, ProviderName } from "./provider";
-
-function isUniqueViolation(err: unknown): boolean {
-  return typeof err === "object" && err !== null && (err as { code?: unknown }).code === "P2002";
-}
 
 export async function generateNickname(db: AuthDb): Promise<string> {
   for (let i = 0; i < 10; i++) {

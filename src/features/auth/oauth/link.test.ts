@@ -95,6 +95,17 @@ describe("loginOrRegisterWithOAuth", () => {
     await expect(loginOrRegisterWithOAuth(db, "GOOGLE", info, meta)).rejects.toMatchObject({ code: "OAUTH_EMAIL_EXISTS", httpStatus: 409 });
   });
 
+  it("maps a P2002 race on user.create (real @prisma/adapter-pg shape) to OAUTH_EMAIL_EXISTS", async () => {
+    const create = vi.fn().mockRejectedValue({
+      code: "P2002",
+      meta: { modelName: "User", driverAdapterError: { cause: { constraint: "User_emailBlindIndex_key" } } },
+    });
+    const db = baseDb({
+      user: { findFirst: vi.fn().mockResolvedValue(null), findUnique: vi.fn().mockResolvedValue(null), create },
+    });
+    await expect(loginOrRegisterWithOAuth(db, "GOOGLE", info, meta)).rejects.toMatchObject({ code: "OAUTH_EMAIL_EXISTS", httpStatus: 409 });
+  });
+
   it("propagates a non-P2002 error from user.create unchanged", async () => {
     const create = vi.fn().mockRejectedValue({ code: "P2003" });
     const db = baseDb({
@@ -136,6 +147,18 @@ describe("linkIdentity", () => {
 
   it("maps a P2002 race on authIdentity.create to IDENTITY_TAKEN", async () => {
     const create = vi.fn().mockRejectedValue({ code: "P2002" });
+    const db = baseDb({ authIdentity: { findUnique: vi.fn().mockResolvedValue(null), create } });
+    await expect(linkIdentity(db, "u1", "KAKAO", { providerUserId: "kakao-x", email: "k@example.com" }, meta)).rejects.toMatchObject({ code: "IDENTITY_TAKEN", httpStatus: 409 });
+  });
+
+  it("maps a P2002 race on authIdentity.create (real @prisma/adapter-pg shape) to IDENTITY_TAKEN", async () => {
+    const create = vi.fn().mockRejectedValue({
+      code: "P2002",
+      meta: {
+        modelName: "AuthIdentity",
+        driverAdapterError: { cause: { constraint: "AuthIdentity_provider_providerUserId_key" } },
+      },
+    });
     const db = baseDb({ authIdentity: { findUnique: vi.fn().mockResolvedValue(null), create } });
     await expect(linkIdentity(db, "u1", "KAKAO", { providerUserId: "kakao-x", email: "k@example.com" }, meta)).rejects.toMatchObject({ code: "IDENTITY_TAKEN", httpStatus: 409 });
   });
