@@ -31,6 +31,15 @@ const ERROR_KEYS: Record<string, string> = {
   INVALID_TRANSITION: "invalidTransition",
 };
 
+/** POST /api/chat/conversations가 던지는 서비스 코드 → chat 카탈로그 키. */
+const CHAT_ERROR_KEYS: Record<string, string> = {
+  NOT_FOUND: "notFound",
+  FORBIDDEN: "forbidden",
+  BLOCKED: "blocked",
+  SELF_CHAT: "selfChat",
+  EMPTY_MESSAGE: "emptyMessage",
+};
+
 const STATUS_BUTTON_KEY: Record<Status, string> = {
   SELLING: "toSelling",
   RESERVED: "toReserved",
@@ -39,12 +48,17 @@ const STATUS_BUTTON_KEY: Record<Status, string> = {
 
 export function ProductDetail({ product, isOwner }: { product: ProductDetailView; isOwner: boolean }) {
   const t = useTranslations("product");
+  const tc = useTranslations("chat");
   const router = useRouter();
 
   const [status, setStatus] = useState(product.status);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  const [composingChat, setComposingChat] = useState(false);
+  const [firstText, setFirstText] = useState("");
+  const [chatSubmitting, setChatSubmitting] = useState(false);
 
   async function changeStatus(next: Status) {
     setError(null);
@@ -67,6 +81,35 @@ export function ProductDetail({ product, isOwner }: { product: ProductDetailView
       setError(t("failed"));
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function startChat(event: React.FormEvent) {
+    event.preventDefault();
+    setError(null);
+    if (chatSubmitting) return;
+    if (!firstText.trim()) {
+      setError(tc("emptyMessage"));
+      return;
+    }
+    setChatSubmitting(true);
+    try {
+      const res = await fetch("/api/chat/conversations", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ productId: product.id, firstText }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ code: undefined }));
+        setError(tc(CHAT_ERROR_KEYS[body.code] ?? "failed"));
+        return;
+      }
+      const body = (await res.json()) as { conversationId: string };
+      router.push(`/chat/${body.conversationId}`);
+    } catch {
+      setError(tc("failed"));
+    } finally {
+      setChatSubmitting(false);
     }
   }
 
@@ -190,11 +233,47 @@ export function ProductDetail({ product, isOwner }: { product: ProductDetailView
           )}
         </div>
       ) : (
-        <div className="flex flex-col gap-1 border-t pt-3">
-          <button type="button" disabled className="self-start rounded bg-black px-3 py-2 text-white opacity-50">
-            {t("chat")}
-          </button>
-          <p className="text-xs text-zinc-500">{t("chatComingSoon")}</p>
+        <div className="flex flex-col gap-2 border-t pt-3">
+          {!composingChat ? (
+            <button
+              type="button"
+              onClick={() => setComposingChat(true)}
+              className="self-start rounded bg-black px-3 py-2 text-white"
+            >
+              {t("chat")}
+            </button>
+          ) : (
+            <form onSubmit={startChat} className="flex flex-col gap-2" noValidate>
+              <label className="flex flex-col gap-1 text-sm">
+                {tc("composeTitle")}
+                <textarea
+                  value={firstText}
+                  onChange={(e) => setFirstText(e.target.value)}
+                  placeholder={tc("composePlaceholder")}
+                  className="rounded border px-2 py-1"
+                />
+              </label>
+              <div className="flex gap-2">
+                <button
+                  type="submit"
+                  disabled={chatSubmitting}
+                  className="rounded bg-black px-3 py-2 text-sm text-white disabled:opacity-50"
+                >
+                  {tc("send")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setComposingChat(false);
+                    setFirstText("");
+                  }}
+                  className="rounded border px-3 py-2 text-sm"
+                >
+                  {tc("cancel")}
+                </button>
+              </div>
+            </form>
+          )}
         </div>
       )}
 
