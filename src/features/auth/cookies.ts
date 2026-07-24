@@ -22,3 +22,14 @@ export function readRefreshCookie(req: Request): string | null {
   }
   return null;
 }
+
+/** 범용 쿠키 리더. 신규 모듈(challenge/step-up)은 이걸 쓴다. 기존 refresh/oauth-state 리더는 범위 밖(그대로 둔다). */
+export function readCookie(req: Request, name: string): string | null {
+  const header = req.headers.get("cookie");
+  if (!header) return null;
+  for (const part of header.split(";")) {
+    const [partName, ...rest] = part.trim().split("=");
+    if (partName === name) return rest.join("=") || null;
+  }
+  return null;
+}
