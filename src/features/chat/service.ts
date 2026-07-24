@@ -399,10 +399,16 @@ export async function checkConversationNumber(
    */
   let matched: { kind: "phone" | "account" } | undefined;
   let cursor: Date | undefined;
+  // 커서는 시각 기준이라, 같은 밀리초에 저장된 메시지가 쪽 경계에 걸리면 건너뛸 수 있다.
+  // 이미 본 id를 기억해 두고, 새로 나온 게 하나도 없을 때만 멈춘다.
+  const seen = new Set<string>();
   scan: for (;;) {
     const page = await repo.listMessages(conversationId, { limit: 200, cursor });
-    if (page.length === 0) break;
+    let fresh = 0;
     for (const m of page) {
+      if (seen.has(m._id)) continue;
+      seen.add(m._id);
+      fresh += 1;
       if (!m.text || m.senderId === userId) continue;
       const span = scanSensitive(m.text).spans.find((s) => s.digits === digits);
       if (span) {
@@ -410,7 +416,10 @@ export async function checkConversationNumber(
         break scan;
       }
     }
-    cursor = page[page.length - 1].createdAt;
+    if (fresh === 0 || page.length === 0) break;
+    // 같은 밀리초를 다시 포함하도록 1ms 뒤로 물려 잡는다(위의 seen이 중복을 걸러낸다).
+    const oldest = page[page.length - 1].createdAt;
+    cursor = new Date(oldest.getTime() + 1);
   }
   if (!matched) {
     throw new AppError("NOT_IN_CONVERSATION", "상대가 이 대화에서 알려준 번호만 확인할 수 있어요.", 400);

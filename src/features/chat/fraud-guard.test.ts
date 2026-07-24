@@ -73,6 +73,39 @@ describe("사기 이력 확인은 상대가 알려준 번호만", () => {
   });
 });
 
+describe("쪽 경계에 같은 시각 메시지가 걸려도", () => {
+  it("건너뛰지 않고 찾아낸다", async () => {
+    const repo = new InMemoryChatRepo();
+    const db = fakeDb();
+    const { conversationId } = await startConversation(repo, db, BUYER_ID, PRODUCT_ID, "안녕하세요");
+    // 한 페이지(200건) 경계 부근에 같은 밀리초로 여러 건이 쌓인 상황을 만든다.
+    vi.useFakeTimers();
+    try {
+      for (let i = 0; i < 230; i++) {
+        await sendMessage(repo, i % 2 === 0 ? BUYER_ID : SELLER_ID, conversationId, {
+          kind: "text",
+          text: `이야기 ${i}`,
+        });
+        if (i % 5 === 0) vi.advanceTimersByTime(1); // 시각이 겹치는 구간을 일부러 만든다
+      }
+      await sendMessage(repo, SELLER_ID, conversationId, {
+        kind: "text",
+        text: "국민 110-234-567890 으로 보내주세요",
+      });
+      // 위 계좌 메시지가 가장 오래된 쪽으로 밀리도록 뒤에 더 쌓는다.
+      for (let i = 0; i < 230; i++) {
+        await sendMessage(repo, BUYER_ID, conversationId, { kind: "text", text: `그 뒤 ${i}` });
+        if (i % 5 === 0) vi.advanceTimersByTime(1);
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+
+    const result = await checkConversationNumber(repo, BUYER_ID, conversationId, "110234567890");
+    expect(result).toMatchObject({ reported: expect.any(Boolean) });
+  });
+});
+
 describe("자동 통보는 감지한 그 번호로 조회한다", () => {
   it("메시지에 가격 등 다른 숫자가 섞여 있어도 계좌번호만 조회한다", async () => {
     const seen: string[] = [];

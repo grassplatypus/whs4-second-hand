@@ -151,7 +151,9 @@ export function scanSensitive(text: string): SensitiveScan {
       spans.push({ start: run.start, end: run.end, kind: "phone", evasive: run.evasive, digits: run.digits });
     } else if (looksLikeAccount(run.digits)) {
       spans.push({ start: run.start, end: run.end, kind: "account", evasive: run.evasive, digits: run.digits });
-    } else if (bankMentioned && run.digits.length >= 8 && run.digits.length <= 16) {
+      // 자릿수 상한을 두지 않는다 — "국민 110-234-567890 15000"처럼 계좌 뒤에 금액이 붙어
+      // 한 덩어리로 읽히는 경우가 흔한데, 상한을 두면 가장 위험한 형태가 조용히 빠져나간다.
+    } else if (bankMentioned && run.digits.length >= 8) {
       // 은행 이름이 함께 적혔다면 자릿수가 조금 짧아도 계좌로 본다.
       spans.push({ start: run.start, end: run.end, kind: "account", evasive: run.evasive, digits: run.digits });
     }

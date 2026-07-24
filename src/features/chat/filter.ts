@@ -1,5 +1,3 @@
-import korcen from "korcen";
-import leoProfanity from "leo-profanity";
 import { PROFANITY } from "./profanity-words";
 
 /**
@@ -83,44 +81,11 @@ export function normalize(text: string): string {
   return normalizeWithSpans(text).text;
 }
 
-/**
- * 낱말 단위로 외부 비속어 사전에 물어본다 — 한국어는 korcen, 영어는 leo-profanity.
- *
- * 위의 목록 검사는 띄어쓰기를 넘나드는 우회("씨 발")를 잡는 대신 목록이 작다.
- * 라이브러리는 반대로 목록이 넓지만 낱말 단위라 위치를 알려주지 않는다.
- * 그래서 낱말마다 물어보고, 걸린 낱말의 원문 위치를 그대로 돌려준다 — 두 방식이 서로를 메운다.
- *
- * 문장부호가 붙으면(`Shit!`) 사전이 못 알아보므로, 검사용 사본에서만 글자·숫자만 남긴다.
- */
-function libraryFlaggedSpans(text: string): Span[] {
-  const found: Span[] = [];
-  const wordPattern = /\S+/g;
-  let match: RegExpExecArray | null;
-  while ((match = wordPattern.exec(text)) !== null) {
-    const raw = match[0];
-    const probe = raw.toLowerCase().replace(/[^0-9a-zㄱ-ㆎ가-힣]/g, "");
-    if (probe.length < 2) continue;
-    let flagged = false;
-    try {
-      flagged = korcen.check(probe) || leoProfanity.check(probe);
-    } catch {
-      flagged = false; // 사전이 어떤 입력에 놀라더라도 대화가 막히면 안 된다.
-    }
-    if (flagged) found.push({ start: match.index, end: match.index + raw.length - 1 });
-  }
-  return found;
-}
-
 export function maskProfanity(text: string): { masked: string; hit: boolean } {
   const { text: normalized, spans } = normalizeWithSpans(text);
 
   const maskOriginalIndex = new Array<boolean>(text.length).fill(false);
   let hit = false;
-
-  for (const span of libraryFlaggedSpans(text)) {
-    hit = true;
-    for (let k = span.start; k <= span.end; k++) maskOriginalIndex[k] = true;
-  }
 
   for (const word of PROFANITY) {
     if (!word) continue;

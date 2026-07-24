@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useTranslations, useFormatter } from "next-intl";
 import { Card, Field, Input, Button } from "@/features/shell/ui";
 import { Avatar } from "@/features/shell/Avatar";
+import { maskProfanity } from "@/features/chat/filter";
 import { STATUS_TRANSITIONS, type Status } from "./categories";
 import { ImageGallery } from "./ImageGallery";
 
@@ -81,6 +82,8 @@ export function ProductDetail({ product, isOwner }: { product: ProductDetailView
 
   const [composingChat, setComposingChat] = useState(false);
   const [firstText, setFirstText] = useState("");
+  /** 첫 메시지에 비속어가 있으면 한 번 물어본다 — 채팅방과 같은 방식(그래도 보낼 수 있다). */
+  const [profanityWarned, setProfanityWarned] = useState(false);
   const [chatSubmitting, setChatSubmitting] = useState(false);
 
   const [composingEscrow, setComposingEscrow] = useState(false);
@@ -118,6 +121,10 @@ export function ProductDetail({ product, isOwner }: { product: ProductDetailView
     if (!firstText.trim()) {
       setError(tc("emptyMessage"));
       return;
+    }
+    if (!profanityWarned && maskProfanity(firstText).hit) {
+      setProfanityWarned(true);
+      return; // 경고만 띄우고 멈춘다. 한 번 더 누르면 그대로 보낸다.
     }
     setChatSubmitting(true);
     try {
@@ -321,12 +328,18 @@ export function ProductDetail({ product, isOwner }: { product: ProductDetailView
                       onChange={(e) => setFirstText(e.target.value)}
                       placeholder={tc("composePlaceholder")}
                       rows={3}
+                      maxLength={1000}
                       className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition-colors placeholder:text-zinc-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
                     />
                   </Field>
+                  {profanityWarned && (
+                    <p role="alert" className="text-xs text-amber-600 dark:text-amber-400">
+                      {tc("profanityWarning")}
+                    </p>
+                  )}
                   <div className="flex gap-2">
                     <Button type="submit" disabled={chatSubmitting}>
-                      {tc("send")}
+                      {profanityWarned ? tc("sendAnyway") : tc("send")}
                     </Button>
                     <Button
                       type="button"
@@ -334,6 +347,7 @@ export function ProductDetail({ product, isOwner }: { product: ProductDetailView
                       onClick={() => {
                         setComposingChat(false);
                         setFirstText("");
+                        setProfanityWarned(false);
                       }}
                     >
                       {tc("cancel")}

@@ -64,3 +64,16 @@ describe("scanSensitive — 은행 이름과 함께", () => {
     expect(scanSensitive("사이즈 123-456").spans).toHaveLength(0);
   });
 });
+
+describe("계좌 뒤에 금액이 붙어 한 덩어리로 읽히는 경우", () => {
+  it("자릿수가 길어져도 계좌로 잡는다(가장 위험한 형태라 놓치면 안 된다)", () => {
+    for (const text of [
+      "국민 110-234-567890 15000",
+      "농협 3521045678901234 12000원 입금해주세요",
+      "카카오뱅크 3333-01-1234567 30000 보내주세요",
+    ]) {
+      const scan = scanSensitive(text);
+      expect(scan.hasAccount, text).toBe(true);
+    }
+  });
+});
