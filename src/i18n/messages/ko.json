@@ -236,7 +236,9 @@
     "noActiveListings": "판매 중인 상품이 없어요",
     "noSoldListings": "아직 판매완료한 상품이 없어요",
     "purchasedListings": "구매한 상품",
-    "noPurchasedListings": "아직 구매한 상품이 없어요"
+    "noPurchasedListings": "아직 구매한 상품이 없어요",
+    "myListingsHint": "내가 올린 물건을 보고, 숨기거나 다시 보이게 할 수 있어요",
+    "myListingsLink": "내 상품 관리하기"
   },
   "account": {
     "setPasswordTitle": "비밀번호 설정",

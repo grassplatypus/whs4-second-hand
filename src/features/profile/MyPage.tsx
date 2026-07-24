@@ -204,6 +204,17 @@ export function MyPage({ initialProfile }: { initialProfile: MyProfileView }) {
         )}
       </Card>
 
+      {/* 내가 올린 물건 관리(숨김 상품 포함)로 바로 가는 길 */}
+      <Card className="flex items-center justify-between gap-3">
+        <span className="text-sm text-zinc-700 dark:text-zinc-300">{t("myListingsHint")}</span>
+        <Link
+          href="/products/mine"
+          className="shrink-0 text-sm font-medium text-emerald-600 hover:underline dark:text-emerald-400"
+        >
+          {t("myListingsLink")}
+        </Link>
+      </Card>
+
       <Card className="flex flex-col divide-y divide-zinc-100 dark:divide-zinc-800">
         <div className="flex items-center justify-between py-2 first:pt-0 last:pb-0">
           <span className="text-sm text-zinc-500 dark:text-zinc-400">{t("region")}</span>

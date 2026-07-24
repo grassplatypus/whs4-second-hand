@@ -236,7 +236,9 @@
     "noActiveListings": "Nothing listed for sale",
     "noSoldListings": "Nothing sold yet",
     "purchasedListings": "Purchased",
-    "noPurchasedListings": "Nothing purchased yet"
+    "noPurchasedListings": "Nothing purchased yet",
+    "myListingsHint": "See your listings and hide or restore them",
+    "myListingsLink": "Manage my listings"
   },
   "account": {
     "setPasswordTitle": "Set password",
