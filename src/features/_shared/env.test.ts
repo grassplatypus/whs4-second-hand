@@ -52,4 +52,14 @@ describe("parseEnv", () => {
     const env = parseEnv({ ...valid, BLIND_INDEX_KEY: asciiKey });
     expect(env.BLIND_INDEX_KEY).toBe(asciiKey);
   });
+
+  it("defaults MEDIA_DIR to ./media when unset", () => {
+    const env = parseEnv(valid);
+    expect(env.MEDIA_DIR).toBe("./media");
+  });
+
+  it("accepts a custom MEDIA_DIR", () => {
+    const env = parseEnv({ ...valid, MEDIA_DIR: "/app/media" });
+    expect(env.MEDIA_DIR).toBe("/app/media");
+  });
 });

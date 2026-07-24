@@ -40,6 +40,9 @@ yarn-error.log*
 # vercel
 .vercel
 
+# local dev media storage (uploaded product images; MEDIA_DIR default)
+/media
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

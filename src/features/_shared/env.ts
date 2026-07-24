@@ -17,6 +17,8 @@ const schema = z.object({
   GOOGLE_REDIRECT_URI: z.string().optional(),
   OAUTH_STATE_SECRET: z.string().min(16),
   APP_BASE_URL: z.string().default("http://localhost:3000"),
+  // 미디어(상품 이미지) 저장 루트. 컨테이너에서는 /app/media 볼륨, dev에서는 로컬 ./media.
+  MEDIA_DIR: z.string().default("./media"),
   TWO_FACTOR_ISSUER: z.string().default("GrassSecondhand"),
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().int().positive().optional(),
