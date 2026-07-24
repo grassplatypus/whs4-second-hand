@@ -52,6 +52,8 @@ export interface ReportView {
   targetType: "message" | "user";
   /** user 신고면 대상 닉네임, message 신고면 대상 메시지 식별자(닉네임 조회 불가). */
   targetLabel: string;
+  /** user 신고의 대상 userId(관리자가 정지 액션에 쓴다). message 신고는 null. 관리자 전용 surface라 id 노출 허용. */
+  targetUserId: string | null;
   reason: string;
   /** 관리자 전용 원문 스냅샷(#4가 rawText를 관리자용으로 보존한 값). 참여자에겐 절대 안 감. */
   snapshot: string | null;
@@ -81,6 +83,7 @@ export async function listReports(
     reporterNickname: nick.get(r.reporterId) ?? "(탈퇴)",
     targetType: r.targetType,
     targetLabel: r.targetType === "user" ? (nick.get(r.targetId) ?? "(탈퇴)") : r.targetId,
+    targetUserId: r.targetType === "user" ? r.targetId : null,
     reason: r.reason,
     snapshot: r.snapshot ?? null,
     status: r.status,

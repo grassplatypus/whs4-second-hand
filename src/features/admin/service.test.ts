@@ -130,6 +130,8 @@ describe("listReports (닉네임 보강·snapshot 관리자 전용)", () => {
     expect(msgReport.snapshot).toBe("시발"); // 관리자 전용 원문
     const userReport = views.find((v) => v.targetType === "user")!;
     expect(userReport.targetLabel).toBe("수상한사람"); // 유저 신고는 대상 닉네임
+    expect(userReport.targetUserId).toBe("u9"); // 관리자 정지 액션용 대상 id
+    expect(msgReport.targetUserId).toBeNull(); // 메시지 신고는 대상 유저 id 없음
   });
 });
 
