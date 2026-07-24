@@ -25,6 +25,8 @@
 
 ## 2. 태스크 8에서 드러난 이슈: `e2e/oauth.spec.ts`(ext-1) 2건이 이 브랜치의 변경으로 깨져 있음
 
+**갱신(최종 브랜치 리뷰 이후, 커밋 `1e552cf`로 고침):** 아래 서술과 "처리" 항목의 3번(후속 조치로 이관)은 당시 상태의 기록이다. 실제로는 이 브랜치 안에서 두 테스트를 갱신했다 — ①`social signup → relogin same user → link second → unlink`는 네이버 해제 전에 alice(OAuth 전용 계정이라 비번 step-up 불가)가 TOTP를 새로 켜고 그 코드로 `/api/auth/step-up`을 통과한 뒤 해제를 재시도하도록 바꿨고, ②`last-credential unlink is refused`는 `unlink without step-up is refused (step-up gate)`로 이름과 취지를 다시 써서 — bob이 step_up 쿠키 없이 해제를 호출하면 last-credential(409) 체크에 도달하기도 전에 401 `STEP_UP_REQUIRED`가 나는, 이 브랜치가 실제로 추가한 게이트 자체를 검증하게 했다(원래 테스트가 겨냥하던 last-credential 409는 `unlinkIdentity`가 손대지 않은 별개의 가드라 이 테스트의 범위에서 제외 — 새 테스트 안의 주석에 그 근거를 남겼다). 둘 다 `pnpm exec playwright test e2e/oauth.spec.ts`로 그린 확인(4절·§7 참고).
+
 전체 검증 커맨드(`pnpm test:e2e`)를 돌리자 기존 `e2e/oauth.spec.ts`의 두 테스트가 실패한다:
 
 - `social signup → relogin same user → link second → unlink` — 네이버 해제 후 "연결 해제" 버튼이 1개로 줄 것을 기대하지만 2개로 남는다.
@@ -43,7 +45,7 @@
 2. **이메일 2FA 설정·활성, 목 메일러로 코드 발송·검증** — ✅(유닛 레벨). `emailOtp.test.ts`/`service.test.ts`가 발송·해시·검증·1회용·레이트리밋을 `MemoryMailer`로 증명. **E2E는 커버하지 않음** — 4절의 한계 참고.
 3. **2FA 유저 로컬 로그인 시 세션 없이 챌린지 → verify-login 후 세션** — ✅. `e2e/twofactor.spec.ts` 테스트 1: 재로그인 응답이 `{twoFactorRequired:true, method:"TOTP"}`(세션 토큰 없음)이고, `/login/2fa`에서 코드 제출 후에만 `/api/auth/refresh`가 성공.
 4. **OAuth 로그인도 2FA 유저면 챌린지(우회 불가)** — ✅. 테스트 3: 로컬 계정에 카카오를 연동한 뒤 TOTP를 켜고 로그아웃, 같은 `mock_as`로 OAuth 로그인 시도 → `/login/2fa`로 리다이렉트되고 `refresh_token` 쿠키는 없고 `2fa_challenge` 쿠키만 있음을 직접 단언.
-5. **이메일 OTP 폴백(TOTP 유저가 이메일로 통과)** — ✅(유닛 레벨, `service.test.ts`의 `completeLoginTwoFactor` EMAIL 분기 테스트). E2E는 다루지 않음(4절).
+5. **이메일 OTP 폴백(TOTP 유저가 이메일로 통과)** — ✅. 최종 브랜치 리뷰에서 이 폴백이 로그인 계층에 실제로 배선돼 있지 않다는 지적을 받아 수정: `/api/auth/2fa/resend`가 챌린지의 `method`(EMAIL/TOTP 무관)와 상관없이 항상 `LOGIN_2FA` 이메일 코드를 발송하도록 고쳤고, `completeLoginTwoFactor`의 TOTP 분기를 "TOTP 코드 또는 유효한 LOGIN_2FA 이메일 코드"로 바꿨다(`verifyTotpFor(...) || verifyEmailOtp(...)`, fail-closed `default`는 그대로) — 이제 인증기를 잃은 TOTP 유저도 이메일로 로그인 챌린지를 통과하는 유일한 계정 복구 경로가 실제로 동작한다. `service.test.ts`에 TOTP 챌린지를 이메일 코드로 통과시키는 테스트와, 어느 쪽도 맞지 않으면 여전히 실패하는 테스트를 추가해 유닛 레벨로 증명했다. **E2E는 여전히 다루지 않음** — 4절에 적힌 대로 dev 메일러가 콘솔 목이라 발송된 코드 값을 Playwright가 읽어낼 방법이 없기 때문이며(실 SMTP는 범위 밖), 이 갭은 새로 생긴 게 아니라 그대로 남아 있다.
 6. **2FA 해제·소셜 연동해제가 step-up 필요, 미통과 401** — ✅. 테스트 2: step_up 쿠키 없이 `/2fa/disable` → 401 `STEP_UP_REQUIRED`, `/step-up`(비번)로 재인증 후 `/2fa/disable` → 200. 소셜 연동해제 쪽은 유닛(`unlink/route.test.ts`)+이번 태스크가 실행 중 발견한 2절의 통합 이슈로 실제 동작(교차)이 재확인됨(단, 그 라우트 자체를 겨냥한 신규 E2E는 범위 밖이라 추가하지 않음 — 이미 유닛으로 커버됨).
 7. **step-up 재인증(비번/TOTP/이메일) → step_up 쿠키 → 작업 통과** — ✅ 비번 경로는 E2E(테스트 2), TOTP·이메일 경로는 유닛(`service.test.ts`의 `checkStepUp` 3분기 테스트)으로 커버.
 8. **OTP 1회용·만료·레이트리밋, 시크릿 암호화·코드 해시 저장, 로그·응답에 평문 없음, 전체 테스트 통과** — ✅. 4절의 psql·grep 실제 출력, `pnpm test`/`tsc`/`build`/`test:e2e`(2절의 알려진 예외 제외) 결과.
@@ -119,7 +121,7 @@ dev 환경의 메일러는 콘솔에 `"[MAILER] OTP 메일 발송(목)"`만 찍�
 
 ## 7. 남은 알려진 갭 (다음 단계로 이관)
 
-- **`e2e/oauth.spec.ts` 2건이 이번 브랜치(태스크 6)의 step-up 게이팅과 통합되지 않았다(2절).** 다음 단계(최종 브랜치 리뷰 또는 후속 태스크)에서 두 테스트를 "해제 클릭 → `STEP_UP_REQUIRED` → 비번 재입력 → 재시도 → 완료" 흐름으로 갱신해야 한다. 이번 태스크는 파일 범위(`e2e/twofactor.spec.ts`, 본 워크로그)를 벗어나지 않기 위해 손대지 않았다.
+- ~~`e2e/oauth.spec.ts` 2건이 이번 브랜치(태스크 6)의 step-up 게이팅과 통합되지 않았다(2절).~~ **해결됨(최종 브랜치 리뷰, 커밋 `1e552cf`)**: 두 테스트를 TOTP 기반 step-up(다중 자격증명 해제)과 "step-up 없이 해제는 거부된다" 게이트 테스트로 갱신해 그린으로 통과한다. 자세한 내용은 2절 갱신 노트.
 - **마이그레이션 체크섬 드리프트(`20260723151030_auth_core`)** — ext-1 태스크10이 적용 이후의 SQL 파일 편집으로 발생, `migrate deploy`는 무해하지만 `migrate dev`가 막힌다. 태스크 1에서 처음 발견된 이래 이번 태스크까지 diff+deploy 폴백만 써 왔고 근본 해결(`prisma migrate resolve --applied` 등)은 아직 없음 — 유지보수 항목으로 계속 이관.
 - **Task 3(ext-1)의 unlink 잔존 경합(READ COMMITTED 하 완전 동시 이종-provider unlink)** — ext-1 워크로그에서 이미 문서화된 항목, 이번 태스크로 새로 발생하거나 악화되지 않았음을 확인(코드 변경 없음, `unlinkIdentity`의 원자 delete 가드는 이번 브랜치가 손대지 않음).
 - **최종 브랜치 opus 리뷰** — #1a-ext-1의 선례처럼 8개 태스크 전체를 가로지르는 교차 리뷰는 아직 수행되지 않았다. 이 워크로그는 태스크 8(E2E)까지의 기록이며, 최종 리뷰는 별도 단계로 남아 있다.
