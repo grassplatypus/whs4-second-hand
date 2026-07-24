@@ -40,9 +40,15 @@ describe("ProductCard — safe subset only", () => {
     expect(screen.queryByText(/0원/)).not.toBeInTheDocument();
   });
 
-  it("shows a placeholder when there is no thumbnail", () => {
+  it("falls back to the category sample image when there is no uploaded thumbnail", () => {
     renderIt({ ...base, thumbnail: null });
-    expect(screen.getByText(ko.product.noImage)).toBeInTheDocument();
+    const img = screen.getByRole("img");
+    expect(img).toHaveAttribute("src", "/samples/DIGITAL.webp");
+  });
+
+  it("uses the uploaded thumbnail when present", () => {
+    renderIt({ ...base, thumbnail: "products/abc.webp" });
+    expect(screen.getByRole("img")).toHaveAttribute("src", "/api/media/products/abc.webp");
   });
 
   it("never renders seller PII or precise coordinates — the type has no such fields", () => {
@@ -50,6 +56,7 @@ describe("ProductCard — safe subset only", () => {
     const html = container.innerHTML;
     expect(html).not.toMatch(/@.+\..+/); // 이메일 형태
     expect(html).not.toMatch(/\d{2,3}-\d{3,4}-\d{4}/); // 전화번호 형태
-    expect(html).not.toMatch(/lat|lng|latitude|longitude/i);
+    // 좌표 누출 검사 — CSS 클래스 "relative"의 부분문자열 오탐을 피하려 단어 경계로 매칭한다.
+    expect(html).not.toMatch(/\blat\b|\blng\b|latitude|longitude/i);
   });
 });
