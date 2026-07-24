@@ -53,13 +53,52 @@ describe("ProductDetail", () => {
     expect(screen.getByRole("link", { name: "풀숲여우" })).toHaveAttribute("href", "/u/풀숲여우");
   });
 
-  it("shows a disabled chat button with a coming-soon note for non-owners, and no owner controls", () => {
+  it("shows an enabled chat button for non-owners, and no owner controls", () => {
     renderIt(product, false);
-    const chatButton = screen.getByRole("button", { name: ko.product.chat });
-    expect(chatButton).toBeDisabled();
-    expect(screen.getByText(ko.product.chatComingSoon)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: ko.product.chat })).toBeEnabled();
     expect(screen.queryByText(ko.product.editButton)).not.toBeInTheDocument();
     expect(screen.queryByText(ko.product.deleteButton)).not.toBeInTheDocument();
+  });
+
+  it("non-owner: clicking chat opens a first-message compose form, then POSTs and navigates to the conversation", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonOk({ conversationId: "c1", message: {} })));
+    const user = userEvent.setup();
+    renderIt(product, false);
+
+    await user.click(screen.getByRole("button", { name: ko.product.chat }));
+    await user.type(screen.getByPlaceholderText(ko.chat.composePlaceholder), "안녕하세요 아직 판매 중인가요?");
+    await user.click(screen.getByRole("button", { name: ko.chat.send }));
+
+    await waitFor(() => {
+      const call = (fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls[0];
+      expect(call[0]).toBe("/api/chat/conversations");
+      expect((call[1] as RequestInit).method).toBe("POST");
+      expect(JSON.parse((call[1] as RequestInit).body as string)).toEqual({
+        productId: "p1",
+        firstText: "안녕하세요 아직 판매 중인가요?",
+      });
+    });
+    expect(push).toHaveBeenCalledWith("/chat/c1");
+  });
+
+  it("non-owner: maps a BLOCKED chat error to the catalog message, never the raw server text", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonFail(403, "BLOCKED")));
+    const user = userEvent.setup();
+    renderIt(product, false);
+
+    await user.click(screen.getByRole("button", { name: ko.product.chat }));
+    await user.type(screen.getByPlaceholderText(ko.chat.composePlaceholder), "hi");
+    await user.click(screen.getByRole("button", { name: ko.chat.send }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(ko.chat.blocked);
+    expect(screen.queryByText("leaky server text")).not.toBeInTheDocument();
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("owner: never shows a chat button or compose form", () => {
+    renderIt(product, true);
+    expect(screen.queryByRole("button", { name: ko.product.chat })).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText(ko.chat.composePlaceholder)).not.toBeInTheDocument();
   });
 
   it("shows edit/delete/status controls for the owner, and never a chat button", () => {

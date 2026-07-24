@@ -205,5 +205,33 @@
     "forbidden": "권한이 없어요",
     "invalidTransition": "바꿀 수 없는 상태예요",
     "invalidImage": "이미지를 처리할 수 없어요"
+  },
+  "chat": {
+    "listTitle": "채팅",
+    "empty": "대화가 없어요",
+    "roomTitle": "채팅방",
+    "viewProduct": "상품 보기",
+    "messagePlaceholder": "메시지를 입력해 주세요",
+    "send": "보내기",
+    "imageButton": "사진 보내기",
+    "block": "차단하기",
+    "unblock": "차단 해제",
+    "blockedState": "차단한 상대예요",
+    "report": "신고",
+    "reportReasonPlaceholder": "신고 사유를 입력해 주세요",
+    "reportSubmit": "신고하기",
+    "reportSent": "신고했어요",
+    "cancel": "취소",
+    "composeTitle": "첫 메시지를 보내 주세요",
+    "composePlaceholder": "첫 메시지를 입력해 주세요",
+    "failed": "다시 시도해 주세요",
+    "blocked": "차단된 상대와는 대화할 수 없어요",
+    "selfChat": "자기 상품에는 채팅할 수 없어요",
+    "firstMsgTextOnly": "첫 메시지는 글로 보내 주세요",
+    "imageBeforeReply": "상대가 답하기 전에는 사진을 보낼 수 없어요",
+    "notFound": "대화를 찾을 수 없어요",
+    "forbidden": "권한이 없어요",
+    "emptyMessage": "메시지를 입력해 주세요",
+    "invalidImage": "이미지를 처리할 수 없어요"
   }
 }
