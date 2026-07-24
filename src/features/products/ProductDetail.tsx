@@ -40,6 +40,17 @@ const CHAT_ERROR_KEYS: Record<string, string> = {
   EMPTY_MESSAGE: "emptyMessage",
 };
 
+/** POST /api/escrow가 던지는 서비스 코드 → escrow 카탈로그 키. */
+const ESCROW_ERROR_KEYS: Record<string, string> = {
+  SELF_TRADE: "selfTrade",
+  PRODUCT_UNAVAILABLE: "productUnavailable",
+  INVALID_AMOUNT: "invalidAmount",
+  INVALID_INPUT: "invalidAmount",
+  FORBIDDEN: "forbidden",
+  NOT_FOUND: "notFound",
+  UNAUTHENTICATED: "unauthenticated",
+};
+
 const STATUS_BUTTON_KEY: Record<Status, string> = {
   SELLING: "toSelling",
   RESERVED: "toReserved",
@@ -49,6 +60,7 @@ const STATUS_BUTTON_KEY: Record<Status, string> = {
 export function ProductDetail({ product, isOwner }: { product: ProductDetailView; isOwner: boolean }) {
   const t = useTranslations("product");
   const tc = useTranslations("chat");
+  const te = useTranslations("escrow");
   const router = useRouter();
 
   const [status, setStatus] = useState(product.status);
@@ -59,6 +71,10 @@ export function ProductDetail({ product, isOwner }: { product: ProductDetailView
   const [composingChat, setComposingChat] = useState(false);
   const [firstText, setFirstText] = useState("");
   const [chatSubmitting, setChatSubmitting] = useState(false);
+
+  const [composingEscrow, setComposingEscrow] = useState(false);
+  const [escrowAmount, setEscrowAmount] = useState(String(product.price));
+  const [escrowSubmitting, setEscrowSubmitting] = useState(false);
 
   async function changeStatus(next: Status) {
     setError(null);
@@ -110,6 +126,36 @@ export function ProductDetail({ product, isOwner }: { product: ProductDetailView
       setError(tc("failed"));
     } finally {
       setChatSubmitting(false);
+    }
+  }
+
+  async function startEscrow(event: React.FormEvent) {
+    event.preventDefault();
+    setError(null);
+    if (escrowSubmitting) return;
+    const amount = Number(escrowAmount);
+    if (!Number.isInteger(amount) || amount <= 0) {
+      setError(te("invalidAmount"));
+      return;
+    }
+    setEscrowSubmitting(true);
+    try {
+      const res = await fetch("/api/escrow", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ productId: product.id, amount }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ code: undefined }));
+        setError(te(ESCROW_ERROR_KEYS[body.code] ?? "failed"));
+        return;
+      }
+      const body = (await res.json()) as { id: string };
+      router.push(`/escrow/${body.id}`);
+    } catch {
+      setError(te("failed"));
+    } finally {
+      setEscrowSubmitting(false);
     }
   }
 
@@ -274,6 +320,50 @@ export function ProductDetail({ product, isOwner }: { product: ProductDetailView
               </div>
             </form>
           )}
+
+          {/* 판매중일 때만 안전거래 요청 — 예약중/판매완료면 서비스가 409라 버튼을 숨긴다. */}
+          {status === "SELLING" &&
+            (!composingEscrow ? (
+            <button
+              type="button"
+              onClick={() => setComposingEscrow(true)}
+              className="self-start rounded border px-3 py-2 text-sm"
+            >
+              {te("request")}
+            </button>
+          ) : (
+            <form onSubmit={startEscrow} className="flex flex-col gap-2" noValidate>
+              <label className="flex flex-col gap-1 text-sm">
+                {te("amountInputLabel")}
+                <input
+                  type="number"
+                  min={1}
+                  value={escrowAmount}
+                  onChange={(e) => setEscrowAmount(e.target.value)}
+                  className="rounded border px-2 py-1"
+                />
+              </label>
+              <div className="flex gap-2">
+                <button
+                  type="submit"
+                  disabled={escrowSubmitting}
+                  className="rounded bg-black px-3 py-2 text-sm text-white disabled:opacity-50"
+                >
+                  {te("requestSubmit")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setComposingEscrow(false);
+                    setEscrowAmount(String(product.price));
+                  }}
+                  className="rounded border px-3 py-2 text-sm"
+                >
+                  {te("cancel")}
+                </button>
+              </div>
+            </form>
+          ))}
         </div>
       )}
 

@@ -101,6 +101,49 @@ describe("ProductDetail", () => {
     expect(screen.queryByPlaceholderText(ko.chat.composePlaceholder)).not.toBeInTheDocument();
   });
 
+  it("non-owner: shows an escrow request button", () => {
+    renderIt(product, false);
+    expect(screen.getByRole("button", { name: ko.escrow.request })).toBeInTheDocument();
+  });
+
+  it("owner: never shows an escrow request button", () => {
+    renderIt(product, true);
+    expect(screen.queryByRole("button", { name: ko.escrow.request })).not.toBeInTheDocument();
+  });
+
+  it("non-owner: requesting escrow POSTs {productId, amount defaulting to price} then navigates to the room", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonOk({ id: "e1" })));
+    const user = userEvent.setup();
+    renderIt(product, false);
+
+    await user.click(screen.getByRole("button", { name: ko.escrow.request }));
+    await user.click(screen.getByRole("button", { name: ko.escrow.requestSubmit }));
+
+    await waitFor(() => {
+      const call = (fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls[0];
+      expect(call[0]).toBe("/api/escrow");
+      expect((call[1] as RequestInit).method).toBe("POST");
+      expect(JSON.parse((call[1] as RequestInit).body as string)).toEqual({
+        productId: "p1",
+        amount: 500000,
+      });
+    });
+    expect(push).toHaveBeenCalledWith("/escrow/e1");
+  });
+
+  it("non-owner: maps a SELF_TRADE escrow error to the catalog message, never the raw server text", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonFail(400, "SELF_TRADE")));
+    const user = userEvent.setup();
+    renderIt(product, false);
+
+    await user.click(screen.getByRole("button", { name: ko.escrow.request }));
+    await user.click(screen.getByRole("button", { name: ko.escrow.requestSubmit }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(ko.escrow.selfTrade);
+    expect(screen.queryByText("leaky server text")).not.toBeInTheDocument();
+    expect(push).not.toHaveBeenCalled();
+  });
+
   it("shows edit/delete/status controls for the owner, and never a chat button", () => {
     renderIt(product, true);
     expect(screen.getByRole("link", { name: ko.product.editButton })).toHaveAttribute(
