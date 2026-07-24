@@ -20,13 +20,20 @@ async function fakeDb(user: unknown) {
 }
 
 async function activeUser() {
-  return { id: "u1", role: "USER", passwordHash: await hashPassword("hunter2hunter2"), deletedAt: null };
+  return {
+    id: "u1",
+    role: "USER",
+    passwordHash: await hashPassword("hunter2hunter2"),
+    deletedAt: null,
+    twoFactorMethod: "NONE",
+  };
 }
 
 describe("loginUser", () => {
   it("issues an access token carrying userId and role", async () => {
     const db = await fakeDb(await activeUser());
     const result = await loginUser(db, credentials, noMeta);
+    if ("twoFactorRequired" in result) throw new Error("unreachable");
     expect(await verifyAccessToken(result.accessToken)).toEqual({ userId: "u1", role: "USER" });
     expect(result.expiresIn).toBe(900);
     expect(result.refreshToken.length).toBeGreaterThan(20);
@@ -75,5 +82,29 @@ describe("loginUser", () => {
     const failData = (failDb.authAuditLog.create as ReturnType<typeof vi.fn>).mock.calls[0][0].data;
     expect(failData.event).toBe("LOGIN_FAIL");
     expect(JSON.stringify(failData)).not.toContain("user@example.com");
+  });
+
+  it("returns a two-factor challenge (no session) for a TOTP-enabled user, and audits TWO_FACTOR_CHALLENGE", async () => {
+    const db = await fakeDb({ ...(await activeUser()), twoFactorMethod: "TOTP" });
+    const result = await loginUser(db, credentials, noMeta);
+    expect(result).toEqual({ twoFactorRequired: true, method: "TOTP", userId: "u1" });
+    expect(db.session.create).not.toHaveBeenCalled();
+    expect((db.authAuditLog.create as ReturnType<typeof vi.fn>).mock.calls[0][0].data.event).toBe(
+      "TWO_FACTOR_CHALLENGE",
+    );
+  });
+
+  it("returns a two-factor challenge (no session) for an EMAIL-enabled user", async () => {
+    const db = await fakeDb({ ...(await activeUser()), twoFactorMethod: "EMAIL" });
+    const result = await loginUser(db, credentials, noMeta);
+    expect(result).toEqual({ twoFactorRequired: true, method: "EMAIL", userId: "u1" });
+    expect(db.session.create).not.toHaveBeenCalled();
+  });
+
+  it("still issues a normal session for a NONE (2FA-disabled) user", async () => {
+    const db = await fakeDb(await activeUser());
+    const result = await loginUser(db, credentials, noMeta);
+    expect(result).not.toHaveProperty("twoFactorRequired");
+    expect(db.session.create).toHaveBeenCalledTimes(1);
   });
 });

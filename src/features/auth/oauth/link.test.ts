@@ -29,14 +29,37 @@ function baseDb(over: Record<string, unknown> = {}) {
 describe("loginOrRegisterWithOAuth", () => {
   it("logs into the existing user when the identity is known", async () => {
     const db = baseDb({
-      authIdentity: { findUnique: vi.fn().mockResolvedValue({ userId: "u1", user: { id: "u1", deletedAt: null } }) },
+      authIdentity: {
+        findUnique: vi
+          .fn()
+          .mockResolvedValue({ userId: "u1", user: { id: "u1", deletedAt: null, twoFactorMethod: "NONE" } }),
+      },
       session: { create: vi.fn().mockResolvedValue({ id: "s1" }) },
       authAuditLog: { create: vi.fn().mockResolvedValue({}) },
     });
     const r = await loginOrRegisterWithOAuth(db, "GOOGLE", info, meta);
+    expect(r).not.toHaveProperty("twoFactorRequired");
+    if ("twoFactorRequired" in r) throw new Error("unreachable");
     expect(r.userId).toBe("u1");
     expect(r.refreshToken.length).toBeGreaterThan(20);
     expect((db.authAuditLog.create as any).mock.calls[0][0].data.event).toBe("OAUTH_LOGIN");
+  });
+
+  it("returns a two-factor challenge (no session) for an existing 2FA-enabled identity, and audits TWO_FACTOR_CHALLENGE", async () => {
+    const sessionCreate = vi.fn();
+    const db = baseDb({
+      authIdentity: {
+        findUnique: vi
+          .fn()
+          .mockResolvedValue({ userId: "u1", user: { id: "u1", deletedAt: null, twoFactorMethod: "EMAIL" } }),
+      },
+      session: { create: sessionCreate },
+      authAuditLog: { create: vi.fn().mockResolvedValue({}) },
+    });
+    const r = await loginOrRegisterWithOAuth(db, "GOOGLE", info, meta);
+    expect(r).toEqual({ twoFactorRequired: true, method: "EMAIL", userId: "u1" });
+    expect(sessionCreate).not.toHaveBeenCalled();
+    expect((db.authAuditLog.create as any).mock.calls[0][0].data.event).toBe("TWO_FACTOR_CHALLENGE");
   });
 
   it("creates a passwordless user + identity when nothing matches", async () => {
