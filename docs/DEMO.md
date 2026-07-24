@@ -51,6 +51,13 @@ pnpm dev                                             # 또는 node node_modules/
 
 ---
 
+## 데모 데이터 채우기
+
+```bash
+node scripts/seed-demo-full.mjs   # 상품·대화·안전거래(약속·정산·후기)·프로필 사진까지 한 번에
+node scripts/seed-demo.mjs        # 여러 동네 상품을 더 넣고 싶을 때
+```
+
 ## 데모 시나리오 (핵심 흐름)
 
 1. **회원가입·로그인** — `/register`, `/login`. 이메일 OTP·2FA(TOTP/이메일)·OAuth 지원. 위치(동네)는 `/mypage`에서 설정(거친 좌표만 저장).
