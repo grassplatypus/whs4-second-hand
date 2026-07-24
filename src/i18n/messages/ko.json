@@ -319,6 +319,8 @@
     "empty": "진행 중인 안전거래가 없어요",
     "viewProduct": "상품 보기",
     "counterparty": "상대",
+    "roleBuyer": "구매",
+    "roleSeller": "판매",
     "amountLabel": "거래 금액",
     "statusLabel": "상태",
     "won": "원",

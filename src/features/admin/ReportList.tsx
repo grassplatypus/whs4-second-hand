@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useTranslations } from "next-intl";
+import { useFormatter, useTranslations } from "next-intl";
+import { Card, PageHeader, Button, EmptyState } from "@/features/shell/ui";
+import { Avatar } from "@/features/shell/Avatar";
 
 /** 신고 상태 필터 — 카탈로그 라벨 키와 1:1. 서버 문자열을 그대로 화면에 쓰지 않는다. */
 export type ReportStatusFilter = "open" | "resolved" | "dismissed";
@@ -39,10 +41,18 @@ async function readErrorCode(res: Response): Promise<string | undefined> {
   return (body as { code?: string }).code;
 }
 
+/** 서버가 주는 날짜 문자열을 안전하게 포맷한다 — 파싱 실패는 "—"로. */
+function formatDate(iso: string, format: ReturnType<typeof useFormatter>): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return format.dateTime(d, { dateStyle: "medium", timeStyle: "short" });
+}
+
 const FILTERS: ReportStatusFilter[] = ["open", "resolved", "dismissed"];
 
 export function ReportList() {
   const t = useTranslations("admin");
+  const format = useFormatter();
 
   const [status, setStatus] = useState<ReportStatusFilter>("open");
   const [items, setItems] = useState<ReportItemView[]>([]);
@@ -124,7 +134,7 @@ export function ReportList() {
 
   return (
     <div className="flex w-full max-w-2xl flex-col gap-4">
-      <h1 className="text-xl font-semibold">{t("reportsTitle")}</h1>
+      <PageHeader title={t("reportsTitle")} />
 
       <div className="flex flex-wrap gap-2">
         {FILTERS.map((f) => (
@@ -133,8 +143,10 @@ export function ReportList() {
             type="button"
             onClick={() => setStatus(f)}
             aria-pressed={status === f}
-            className={`rounded border px-3 py-1 text-sm ${
-              status === f ? "bg-black text-white" : "hover:bg-zinc-50"
+            className={`rounded-full border px-3 py-1 text-sm font-medium transition-colors ${
+              status === f
+                ? "border-emerald-600 bg-emerald-600 text-white"
+                : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
             }`}
           >
             {t(`reportStatus.${f}`)}
@@ -143,88 +155,88 @@ export function ReportList() {
       </div>
 
       {loadError && (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
           {loadError}
         </p>
       )}
 
       {actionError && (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-red-600 dark:text-red-400">
           {actionError}
         </p>
       )}
 
-      {!loading && !loadError && items.length === 0 && (
-        <p className="text-sm text-zinc-500">{t("reportsEmpty")}</p>
+      {loading && (
+        <div className="flex flex-col gap-3" aria-hidden>
+          {[0, 1].map((i) => (
+            <Card key={i} className="animate-pulse">
+              <div className="h-4 w-1/3 rounded bg-zinc-200 dark:bg-zinc-800" />
+              <div className="mt-3 h-3 w-2/3 rounded bg-zinc-200 dark:bg-zinc-800" />
+            </Card>
+          ))}
+        </div>
       )}
+
+      {!loading && !loadError && items.length === 0 && <EmptyState icon="🕊️" title={t("reportsEmpty")} />}
 
       <ul className="flex flex-col gap-3">
         {items.map((r) => (
-          <li key={r.id} className="flex flex-col gap-2 rounded border px-3 py-3 text-sm">
-            <div className="flex items-center justify-between gap-2">
-              <span className="rounded bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700">
-                {r.targetType === "user" ? t("targetUser") : t("targetMessage")}
-              </span>
-              <span className="rounded bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700">
-                {statusLabel(r.status)}
-              </span>
-            </div>
-
-            <dl className="flex flex-col gap-1">
-              <div className="flex justify-between gap-2">
-                <dt className="text-zinc-500">{t("reporter")}</dt>
-                <dd>{r.reporterNickname}</dd>
+          <li key={r.id}>
+            <Card className="flex flex-col gap-3 text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                  {r.targetType === "user" ? t("targetUser") : t("targetMessage")}
+                </span>
+                <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                  {statusLabel(r.status)}
+                </span>
               </div>
-              <div className="flex justify-between gap-2">
-                <dt className="text-zinc-500">{t("target")}</dt>
-                <dd>{r.targetLabel}</dd>
+
+              <div className="flex items-center gap-3">
+                <Avatar nickname={r.reporterNickname} size={32} />
+                <div className="flex min-w-0 flex-col">
+                  <span className="text-xs text-zinc-500 dark:text-zinc-400">{t("reporter")}</span>
+                  <span className="truncate font-medium text-zinc-900 dark:text-zinc-50">{r.reporterNickname}</span>
+                </div>
               </div>
-            </dl>
 
-            <p className="whitespace-pre-wrap text-zinc-700">
-              <span className="text-zinc-500">{t("reason")}: </span>
-              {r.reason}
-            </p>
+              <dl className="flex flex-col gap-1">
+                <div className="flex justify-between gap-2">
+                  <dt className="text-zinc-500 dark:text-zinc-400">{t("target")}</dt>
+                  <dd className="text-zinc-900 dark:text-zinc-100">{r.targetLabel}</dd>
+                </div>
+              </dl>
 
-            {r.snapshot && (
-              <div className="rounded bg-zinc-50 px-2 py-2">
-                <span className="text-xs text-zinc-500">{t("snapshot")}</span>
-                <p className="whitespace-pre-wrap text-zinc-700">{r.snapshot}</p>
-              </div>
-            )}
+              <p className="whitespace-pre-wrap text-zinc-700 dark:text-zinc-300">
+                <span className="text-zinc-500 dark:text-zinc-400">{t("reason")}: </span>
+                {r.reason}
+              </p>
 
-            <span className="text-xs text-zinc-400">{new Date(r.createdAt).toLocaleString()}</span>
+              {r.snapshot && (
+                <div className="rounded-lg bg-zinc-50 px-3 py-2 dark:bg-zinc-800/60">
+                  <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">{t("snapshot")}</span>
+                  <p className="whitespace-pre-wrap text-zinc-700 dark:text-zinc-300">{r.snapshot}</p>
+                </div>
+              )}
 
-            {r.status === "open" && (
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => void resolve(r.id, "resolve")}
-                  disabled={submitting}
-                  className="rounded bg-black px-3 py-2 text-sm text-white disabled:opacity-50"
-                >
-                  {t("resolve")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void resolve(r.id, "dismiss")}
-                  disabled={submitting}
-                  className="rounded border px-3 py-2 text-sm disabled:opacity-50"
-                >
-                  {t("dismiss")}
-                </button>
-                {r.targetType === "user" && r.targetUserId && (
-                  <button
-                    type="button"
-                    onClick={() => void suspend(r.targetUserId!)}
-                    disabled={submitting}
-                    className="rounded border border-red-300 px-3 py-2 text-sm text-red-600 disabled:opacity-50"
-                  >
-                    {t("suspendUser")}
-                  </button>
-                )}
-              </div>
-            )}
+              <span className="text-xs text-zinc-400 dark:text-zinc-500">{formatDate(r.createdAt, format)}</span>
+
+              {r.status === "open" && (
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="primary" onClick={() => void resolve(r.id, "resolve")} disabled={submitting}>
+                    {t("resolve")}
+                  </Button>
+                  <Button type="button" variant="secondary" onClick={() => void resolve(r.id, "dismiss")} disabled={submitting}>
+                    {t("dismiss")}
+                  </Button>
+                  {r.targetType === "user" && r.targetUserId && (
+                    <Button type="button" variant="danger" onClick={() => void suspend(r.targetUserId!)} disabled={submitting}>
+                      {t("suspendUser")}
+                    </Button>
+                  )}
+                </div>
+              )}
+            </Card>
           </li>
         ))}
       </ul>

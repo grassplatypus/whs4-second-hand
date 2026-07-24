@@ -319,6 +319,8 @@
     "empty": "No escrow trades in progress",
     "viewProduct": "View item",
     "counterparty": "Other party",
+    "roleBuyer": "Buying",
+    "roleSeller": "Selling",
     "amountLabel": "Trade amount",
     "statusLabel": "Status",
     "won": " won",
