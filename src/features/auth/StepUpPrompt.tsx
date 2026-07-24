@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useTranslations } from "next-intl";
+import { Card, Field, Input, PasswordInput, Button } from "@/features/shell/ui";
 
 type StepUpMethod = "password" | "totp" | "email";
 
@@ -61,44 +62,46 @@ export function StepUpPrompt({ onSuccess }: { onSuccess: () => void }) {
   }
 
   return (
-    <div className="flex w-80 flex-col gap-3 rounded border p-3">
-      <h2 className="font-semibold">{t("stepUpTitle")}</h2>
-      <p className="text-sm text-zinc-500">{t("stepUpDescription")}</p>
+    <Card className="flex flex-col gap-4">
+      <div>
+        <h2 className="font-semibold text-zinc-900 dark:text-zinc-50">{t("stepUpTitle")}</h2>
+        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{t("stepUpDescription")}</p>
+      </div>
 
       <div className="flex gap-2 text-sm">
-        <button
+        <Button
           type="button"
+          variant={method === "password" ? "primary" : "secondary"}
           onClick={() => setMethod("password")}
           aria-pressed={method === "password"}
-          className="rounded border px-2 py-1"
         >
           {t("stepUpUsePassword")}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          variant={method === "totp" ? "primary" : "secondary"}
           onClick={() => setMethod("totp")}
           aria-pressed={method === "totp"}
-          className="rounded border px-2 py-1"
         >
           {t("stepUpUseCode")}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
+          variant={method === "email" ? "primary" : "secondary"}
           onClick={() => setMethod("email")}
           aria-pressed={method === "email"}
-          className="rounded border px-2 py-1"
         >
           {t("stepUpUseEmail")}
-        </button>
+        </Button>
       </div>
 
       {method === "email" && (
         <div className="flex flex-col gap-2">
-          <button type="button" onClick={sendEmailOtp} className="self-start text-sm text-blue-600">
+          <Button type="button" variant="ghost" onClick={sendEmailOtp} className="self-start px-0">
             {t("stepUpSendEmail")}
-          </button>
+          </Button>
           {emailSent && (
-            <p aria-live="polite" className="text-sm text-green-700">
+            <p aria-live="polite" className="text-sm text-emerald-600">
               {t("stepUpEmailSent")}
             </p>
           )}
@@ -107,20 +110,13 @@ export function StepUpPrompt({ onSuccess }: { onSuccess: () => void }) {
 
       <form onSubmit={submit} className="flex flex-col gap-3" noValidate>
         {method === "password" ? (
-          <label className="flex flex-col gap-1">
-            {t("stepUpPassword")}
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="rounded border px-2 py-1"
-            />
-          </label>
+          <Field label={t("stepUpPassword")}>
+            <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} />
+          </Field>
         ) : (
-          <label className="flex flex-col gap-1">
-            {t("stepUpCode")}
-            <input value={code} onChange={(e) => setCode(e.target.value)} className="rounded border px-2 py-1" />
-          </label>
+          <Field label={t("stepUpCode")}>
+            <Input value={code} onChange={(e) => setCode(e.target.value)} />
+          </Field>
         )}
 
         {error && (
@@ -129,14 +125,10 @@ export function StepUpPrompt({ onSuccess }: { onSuccess: () => void }) {
           </p>
         )}
 
-        <button
-          type="submit"
-          disabled={submitting}
-          className="rounded bg-black px-3 py-2 text-white disabled:opacity-50"
-        >
+        <Button type="submit" disabled={submitting} className="w-full">
           {t("stepUpSubmit")}
-        </button>
+        </Button>
       </form>
-    </div>
+    </Card>
   );
 }

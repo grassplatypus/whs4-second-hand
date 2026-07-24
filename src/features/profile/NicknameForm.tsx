@@ -3,13 +3,13 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { StepUpPrompt } from "@/features/auth/StepUpPrompt";
+import { Card, Field, Input, Button } from "@/features/shell/ui";
 
 const ERROR_KEYS: Record<string, string> = {
   NICKNAME_TAKEN: "taken",
 };
 
-/** 닉네임 변경 — 민감 작업. 401 STEP_UP_REQUIRED면 StepUpPrompt로 재인증 후 재시도한다. */
+/** 닉네임 변경 — 민감도가 낮아 step-up 재인증 없이 바로 바꾼다(고유성은 409로 여전히 강제). */
 export function NicknameForm({ initialNickname }: { initialNickname: string }) {
   const t = useTranslations("account");
   const router = useRouter();
@@ -18,7 +18,6 @@ export function NicknameForm({ initialNickname }: { initialNickname: string }) {
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [needsStepUp, setNeedsStepUp] = useState(false);
 
   async function submitNickname() {
     setError(null);
@@ -33,18 +32,12 @@ export function NicknameForm({ initialNickname }: { initialNickname: string }) {
       });
 
       if (res.ok) {
-        setNeedsStepUp(false);
         setSaved(true);
         router.refresh();
         return;
       }
 
       const body = await res.json().catch(() => ({ code: undefined }));
-      if (body.code === "STEP_UP_REQUIRED") {
-        setNeedsStepUp(true);
-        setError(t("stepUpRequired"));
-        return;
-      }
       setError(t(ERROR_KEYS[body.code] ?? "failed"));
     } catch {
       setError(t("failed"));
@@ -59,26 +52,19 @@ export function NicknameForm({ initialNickname }: { initialNickname: string }) {
   }
 
   return (
-    <div className="flex w-80 flex-col gap-3">
-      <h2 className="font-semibold">{t("changeNicknameTitle")}</h2>
-      <form onSubmit={onSubmit} className="flex flex-col gap-2" noValidate>
-        <label className="flex flex-col gap-1">
-          {t("nickname")}
-          <input value={nickname} onChange={(e) => setNickname(e.target.value)} className="rounded border px-2 py-1" />
-        </label>
-        <button
-          type="submit"
-          disabled={submitting}
-          className="rounded bg-black px-3 py-2 text-white disabled:opacity-50"
-        >
+    <Card className="flex flex-col gap-4">
+      <h2 className="font-semibold text-zinc-900 dark:text-zinc-50">{t("changeNicknameTitle")}</h2>
+      <form onSubmit={onSubmit} className="flex flex-col gap-3" noValidate>
+        <Field label={t("nickname")}>
+          <Input value={nickname} onChange={(e) => setNickname(e.target.value)} />
+        </Field>
+        <Button type="submit" disabled={submitting} className="w-full">
           {t("submitNickname")}
-        </button>
+        </Button>
       </form>
 
-      {needsStepUp && <StepUpPrompt onSuccess={submitNickname} />}
-
       {saved && (
-        <p aria-live="polite" className="text-sm text-green-700">
+        <p aria-live="polite" className="text-sm text-emerald-600">
           {t("nicknameSaved")}
         </p>
       )}
@@ -88,6 +74,6 @@ export function NicknameForm({ initialNickname }: { initialNickname: string }) {
           {error}
         </p>
       )}
-    </div>
+    </Card>
   );
 }

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
+import { Card, Button } from "@/features/shell/ui";
 import { StepUpPrompt } from "@/features/auth/StepUpPrompt";
 
 const ERROR_KEYS: Record<string, string> = {
@@ -52,28 +53,23 @@ export function WithdrawForm() {
   }
 
   return (
-    <div className="flex w-80 flex-col gap-3">
-      <h2 className="font-semibold">{t("withdrawTitle")}</h2>
+    <Card className="flex flex-col gap-4">
+      <h2 className="font-semibold text-zinc-900 dark:text-zinc-50">{t("withdrawTitle")}</h2>
 
       {!confirming ? (
-        <button type="button" onClick={() => setConfirming(true)} className="self-start text-sm text-red-600">
+        <Button type="button" variant="danger" onClick={() => setConfirming(true)} className="self-start">
           {t("withdrawButton")}
-        </button>
+        </Button>
       ) : (
-        <div className="flex flex-col gap-2">
-          <p>{t("withdrawConfirm")}</p>
+        <div className="flex flex-col gap-3">
+          <p className="text-sm text-zinc-600 dark:text-zinc-300">{t("withdrawConfirm")}</p>
           <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={doWithdraw}
-              disabled={submitting}
-              className="rounded bg-red-600 px-3 py-2 text-white disabled:opacity-50"
-            >
+            <Button type="button" variant="danger" onClick={doWithdraw} disabled={submitting}>
               {t("withdrawConfirmButton")}
-            </button>
-            <button type="button" onClick={() => setConfirming(false)} className="rounded border px-3 py-2">
+            </Button>
+            <Button type="button" variant="secondary" onClick={() => setConfirming(false)}>
               {t("withdrawCancel")}
-            </button>
+            </Button>
           </div>
         </div>
       )}
@@ -85,6 +81,6 @@ export function WithdrawForm() {
           {error}
         </p>
       )}
-    </div>
+    </Card>
   );
 }

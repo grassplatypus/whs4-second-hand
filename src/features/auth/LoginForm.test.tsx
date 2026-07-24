@@ -28,6 +28,11 @@ afterEach(() => {
 });
 
 describe("LoginForm", () => {
+  it("links to /signup for people without an account", () => {
+    renderForm();
+    expect(screen.getByRole("link", { name: "회원가입" })).toHaveAttribute("href", "/signup");
+  });
+
   it("posts credentials to /api/auth/login", async () => {
     const user = userEvent.setup();
     renderForm();

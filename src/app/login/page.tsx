@@ -1,4 +1,5 @@
 import { getTranslations } from "next-intl/server";
+import { AuthShell } from "@/features/shell/ui";
 import { LoginForm } from "@/features/auth/LoginForm";
 
 // OAuth 콜백/시작 라우트가 붙이는 error 슬러그 → auth.oauth 카탈로그 키
@@ -15,15 +16,20 @@ export default async function LoginPage({
 }) {
   const t = await getTranslations("auth");
   const tOauth = await getTranslations("auth.oauth");
-  const { error } = await searchParams;
+  const { error, signup } = await searchParams;
   const errorSlug = Array.isArray(error) ? error[0] : error;
   const key = errorSlug ? ERROR_KEYS[errorSlug] : undefined;
   const oauthError = key ? tOauth(key) : undefined;
+  const signupDone = (Array.isArray(signup) ? signup[0] : signup) === "done";
 
   return (
-    <main className="flex flex-1 flex-col items-center justify-center gap-6 py-12">
-      <h1 className="text-2xl font-semibold">{t("loginTitle")}</h1>
+    <AuthShell title={t("loginTitle")} subtitle={t("loginSubtitle")}>
+      {signupDone && (
+        <p role="status" className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
+          {t("signupDone")}
+        </p>
+      )}
       <LoginForm oauthError={oauthError} />
-    </main>
+    </AuthShell>
   );
 }

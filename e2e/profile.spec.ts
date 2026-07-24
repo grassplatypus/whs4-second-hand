@@ -77,22 +77,19 @@ test("register → login → /mypage 소개글 편집·저장, 공개 프로필�
   expect(JSON.stringify(publicBody)).not.toContain(PHONE);
 });
 
-test("비밀번호 변경: step-up 쿠키 없이 401 → step-up 후 성공, 새 비번으로만 재로그인된다", async ({ context }) => {
+test("비밀번호 변경: 현재 비밀번호를 그 자리에서 확인한다(step-up 불필요) — 틀리면 401, 맞으면 새 비번으로만 재로그인된다", async ({ context }) => {
   const id = unique();
   const { email } = await registerAndLogin(context.request, id);
   const NEW_PASSWORD = "newhunter2hunter2";
 
-  const withoutStepUp = await context.request.post("/api/auth/password/change", {
-    data: { currentPassword: PASSWORD, newPassword: NEW_PASSWORD },
+  // 틀린 현재 비밀번호 → 401 AUTH_FAILED (step-up 쿠키는 아예 필요 없다)
+  const wrongCurrent = await context.request.post("/api/auth/password/change", {
+    data: { currentPassword: "definitely-wrong-pass", newPassword: NEW_PASSWORD },
   });
-  expect(withoutStepUp.status()).toBe(401);
-  expect((await withoutStepUp.json()).code).toBe("STEP_UP_REQUIRED");
+  expect(wrongCurrent.status()).toBe(401);
+  expect((await wrongCurrent.json()).code).toBe("AUTH_FAILED");
 
-  const stepUp = await context.request.post("/api/auth/step-up", {
-    data: { method: "password", password: PASSWORD },
-  });
-  expect(stepUp.ok()).toBeTruthy();
-
+  // 맞는 현재 비밀번호 → 바로 성공 (step-up 라운드트립 없음)
   const changed = await context.request.post("/api/auth/password/change", {
     data: { currentPassword: PASSWORD, newPassword: NEW_PASSWORD },
   });
@@ -106,18 +103,9 @@ test("비밀번호 변경: step-up 쿠키 없이 401 → step-up 후 성공, 새
   expect(reloginNew.ok()).toBeTruthy();
 });
 
-test("닉네임 변경은 step-up이 필요하고, 성공 시 반영된다", async ({ context }) => {
+test("닉네임 변경은 step-up 없이 바로 되고, 성공 시 반영된다", async ({ context }) => {
   const idA = unique();
   await registerAndLogin(context.request, idA);
-
-  const withoutStepUp = await context.request.post("/api/profile/nickname", { data: { nickname: `${idA}-x` } });
-  expect(withoutStepUp.status()).toBe(401);
-  expect((await withoutStepUp.json()).code).toBe("STEP_UP_REQUIRED");
-
-  const stepUp = await context.request.post("/api/auth/step-up", {
-    data: { method: "password", password: PASSWORD },
-  });
-  expect(stepUp.ok()).toBeTruthy();
 
   const newNickname = `${idA}-new`.slice(0, 20);
   const ok = await context.request.post("/api/profile/nickname", { data: { nickname: newNickname } });
@@ -152,10 +140,6 @@ test("중복 닉네임으로 변경 시도 → 409 NICKNAME_TAKEN", async ({ con
 
   const idA = unique();
   await registerAndLogin(context.request, idA);
-  const stepUp = await context.request.post("/api/auth/step-up", {
-    data: { method: "password", password: PASSWORD },
-  });
-  expect(stepUp.ok()).toBeTruthy();
 
   const dup = await context.request.post("/api/profile/nickname", { data: { nickname: idB } });
   expect(dup.status()).toBe(409);
@@ -212,9 +196,10 @@ test("cross-user step-up 거부: A의 step_up 쿠키로는 B의 민감 작업을
     // B의 refresh 세션(그래서 currentUserFromRefresh는 B) + A의 step_up 쿠키를 한 요청에
     // 실어 보낸다. 라우트는 step_up의 sub(A)와 refresh의 userId(B)가 다르면 여전히
     // STEP_UP_REQUIRED를 던져야 한다 — 다른 유저의 재인증을 빌려 쓸 수 없다는 핵심 게이트.
-    const res = await ctxB.post("/api/auth/password/change", {
+    // (비밀번호 변경은 더 이상 step-up을 안 쓰므로, 여전히 step-up 게이팅인 회원 탈퇴를
+    // 대신 이 크로스유저 검증의 vehicle로 쓴다.)
+    const res = await ctxB.post("/api/auth/withdraw", {
       headers: { cookie: `refresh_token=${refreshCookieB!.value}; step_up=${stepUpCookieA!.value}` },
-      data: { currentPassword: PASSWORD, newPassword: "someOtherPassword123" },
     });
     expect(res.status()).toBe(401);
     expect((await res.json()).code).toBe("STEP_UP_REQUIRED");

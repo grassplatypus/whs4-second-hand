@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { STEPUP_COOKIE, signStepUp } from "@/features/auth/twofactor/stepup";
 import { REFRESH_COOKIE } from "@/features/auth/cookies";
+import { AppError } from "@/features/_shared/error";
 
 const currentUserFromRefresh = vi.fn();
 const changePassword = vi.fn();
@@ -31,7 +31,10 @@ function req(body: unknown, cookies: Record<string, string> = {}): Request {
   });
 }
 
-describe("POST /api/auth/password/change — step-up gating + session sparing", () => {
+// 사용자 요청에 따라 step-up(재인증 쿠키)을 없애고, 현재 비밀번호를 그 자리에서
+// 검증하는 표준 재인증 방식으로 바꿨다 — 이 라우트는 로그인 여부만 확인하고
+// 실제 검증(틀린 현재 비밀번호 거부)은 changePassword(profile/account.ts)에 위임한다.
+describe("POST /api/auth/password/change — inline current-password reauth (no step-up)", () => {
   beforeEach(() => {
     currentUserFromRefresh.mockReset();
     changePassword.mockReset();
@@ -40,7 +43,7 @@ describe("POST /api/auth/password/change — step-up gating + session sparing", 
     userFindUnique.mockResolvedValue({ role: "USER", deletedAt: null });
   });
 
-  it("401 UNAUTHENTICATED when there's no refresh session (checked before step-up)", async () => {
+  it("401 UNAUTHENTICATED when there's no refresh session", async () => {
     currentUserFromRefresh.mockResolvedValue(null);
     const res = await POST(req({ currentPassword: "oldpassword1", newPassword: "newpassword1" }));
     expect(res.status).toBe(401);
@@ -48,32 +51,21 @@ describe("POST /api/auth/password/change — step-up gating + session sparing", 
     expect(changePassword).not.toHaveBeenCalled();
   });
 
-  it("401 STEP_UP_REQUIRED when refresh is valid but no step_up cookie present", async () => {
+  it("400 INVALID_INPUT when currentPassword or newPassword is missing, without calling changePassword", async () => {
     currentUserFromRefresh.mockResolvedValue({ userId: "u1" });
-    const res = await POST(req({ currentPassword: "oldpassword1", newPassword: "newpassword1" }, { [REFRESH_COOKIE]: "tok" }));
-    expect(res.status).toBe(401);
-    expect(await res.json()).toMatchObject({ code: "STEP_UP_REQUIRED" });
+    sessionFindUnique.mockResolvedValue({ id: "sess-current" });
+    const res = await POST(req({ newPassword: "newpassword1" }, { [REFRESH_COOKIE]: "tok" }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ code: "INVALID_INPUT" });
     expect(changePassword).not.toHaveBeenCalled();
   });
 
-  it("401 STEP_UP_REQUIRED when the step_up cookie belongs to a DIFFERENT user than the refresh session", async () => {
-    currentUserFromRefresh.mockResolvedValue({ userId: "u1" });
-    const otherUsersStepUp = await signStepUp("u2");
-    const res = await POST(
-      req({ currentPassword: "oldpassword1", newPassword: "newpassword1" }, { [REFRESH_COOKIE]: "tok", [STEPUP_COOKIE]: otherUsersStepUp }),
-    );
-    expect(res.status).toBe(401);
-    expect(await res.json()).toMatchObject({ code: "STEP_UP_REQUIRED" });
-    expect(changePassword).not.toHaveBeenCalled();
-  });
-
-  it("passes the current session id (resolved from the refresh cookie) so it's spared", async () => {
+  it("passes currentPassword/newPassword and the current session id (resolved from the refresh cookie) so it's spared — no step-up cookie required", async () => {
     currentUserFromRefresh.mockResolvedValue({ userId: "u1" });
     sessionFindUnique.mockResolvedValue({ id: "sess-current" });
     changePassword.mockResolvedValue(undefined);
-    const sameUsersStepUp = await signStepUp("u1");
     const res = await POST(
-      req({ currentPassword: "oldpassword1", newPassword: "newpassword1" }, { [REFRESH_COOKIE]: "tok", [STEPUP_COOKIE]: sameUsersStepUp }),
+      req({ currentPassword: "oldpassword1", newPassword: "newpassword1" }, { [REFRESH_COOKIE]: "tok" }),
     );
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
@@ -87,12 +79,22 @@ describe("POST /api/auth/password/change — step-up gating + session sparing", 
     );
   });
 
+  it("propagates a 401 AUTH_FAILED from changePassword when the current password is wrong", async () => {
+    currentUserFromRefresh.mockResolvedValue({ userId: "u1" });
+    sessionFindUnique.mockResolvedValue({ id: "sess-current" });
+    changePassword.mockRejectedValue(new AppError("AUTH_FAILED", "다시 로그인해 주세요.", 401));
+    const res = await POST(
+      req({ currentPassword: "totally-wrong", newPassword: "newpassword1" }, { [REFRESH_COOKIE]: "tok" }),
+    );
+    expect(res.status).toBe(401);
+    expect(await res.json()).toMatchObject({ code: "AUTH_FAILED" });
+  });
+
   it("401 AUTH_FAILED if the session row can't be found for the refresh token (edge case, shouldn't normally happen)", async () => {
     currentUserFromRefresh.mockResolvedValue({ userId: "u1" });
     sessionFindUnique.mockResolvedValue(null);
-    const sameUsersStepUp = await signStepUp("u1");
     const res = await POST(
-      req({ currentPassword: "oldpassword1", newPassword: "newpassword1" }, { [REFRESH_COOKIE]: "tok", [STEPUP_COOKIE]: sameUsersStepUp }),
+      req({ currentPassword: "oldpassword1", newPassword: "newpassword1" }, { [REFRESH_COOKIE]: "tok" }),
     );
     expect(res.status).toBe(401);
     expect(await res.json()).toMatchObject({ code: "AUTH_FAILED" });
