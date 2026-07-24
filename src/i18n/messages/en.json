@@ -70,5 +70,28 @@
       "tooSoon": "Please try again in a bit",
       "stepUpRequired": "Please verify it's you"
     }
+  },
+  "location": {
+    "title": "Location settings",
+    "sido": "Province/City",
+    "sigungu": "District",
+    "dong": "Neighborhood",
+    "save": "Save",
+    "currentRegion": "Current neighborhood",
+    "notSet": "Not set yet",
+    "saved": "Saved",
+    "failed": "Couldn't save that. Please try again"
+  },
+  "phone": {
+    "title": "Phone verification",
+    "verify": "Verify",
+    "codeLabel": "Verification code",
+    "confirm": "Confirm",
+    "verified": "Verified",
+    "resend": "Resend",
+    "failed": "Couldn't verify that. Please try again",
+    "taken": "That phone number is already verified",
+    "tooSoon": "Please try again in a bit",
+    "noPhone": "No phone number on file"
   }
 }

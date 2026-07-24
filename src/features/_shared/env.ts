@@ -22,6 +22,9 @@ const schema = z.object({
   SMTP_PORT: z.coerce.number().int().positive().optional(),
   SMTP_USER: z.string().optional(),
   SMTP_PASS: z.string().optional(),
+  KAKAO_LOCAL_API_KEY: z.string().optional(),
+  OCTOMO_API_KEY: z.string().optional(),
+  OCTOMO_SENDER: z.string().optional(),
   NODE_ENV: z.enum(["development", "production", "test"]),
 });
 
