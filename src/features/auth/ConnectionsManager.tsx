@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
+import { StepUpPrompt } from "./StepUpPrompt";
 
 const PROVIDERS = [
   { slug: "google", name: "GOOGLE" },
@@ -25,14 +26,22 @@ export function ConnectionsManager({
   const t = useTranslations("auth.oauth");
   const router = useRouter();
   const [error, setError] = useState<string | null>(initialError ?? null);
+  const [stepUpSlug, setStepUpSlug] = useState<string | null>(null);
 
   async function unlink(slug: string) {
     setError(null);
     const res = await fetch(`/api/auth/oauth/${slug}/unlink`, { method: "POST" });
     if (!res.ok) {
       const body = await res.json().catch(() => ({ code: undefined }));
+      // 민감 작업(연동 해제)은 최근 재인증이 없으면 401 STEP_UP_REQUIRED — 원문 대신
+      // StepUpPrompt를 띄워 재인증시킨 뒤 같은 provider로 해제를 재시도한다.
+      if (body.code === "STEP_UP_REQUIRED") {
+        setStepUpSlug(slug);
+        return;
+      }
       return setError(t(ERROR_KEYS[body.code] ?? "failed"));
     }
+    setStepUpSlug(null);
     router.refresh();
   }
 
@@ -60,6 +69,7 @@ export function ConnectionsManager({
           </div>
         );
       })}
+      {stepUpSlug && <StepUpPrompt onSuccess={() => unlink(stepUpSlug)} />}
       {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
     </div>
   );
