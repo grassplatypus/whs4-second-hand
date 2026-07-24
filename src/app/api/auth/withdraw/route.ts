@@ -6,6 +6,7 @@ import { requestMeta } from "@/features/auth/audit";
 import { requireRecentAuth, clearStepUpCookie } from "@/features/auth/twofactor/stepup";
 import { clearChallengeCookie } from "@/features/auth/twofactor/challenge";
 import { withdraw } from "@/features/profile/account";
+import { realWithdrawGuard } from "@/features/profile/withdraw-guard";
 
 function stepUpRequired(): AppError {
   return new AppError("STEP_UP_REQUIRED", "본인 확인이 필요해요.", 401);
@@ -18,7 +19,7 @@ export const POST = withErrorHandling(async (req: Request) => {
   const recent = await requireRecentAuth(req);
   if (recent.userId !== current.userId) throw stepUpRequired();
 
-  await withdraw(prisma, current.userId, requestMeta(req));
+  await withdraw(prisma, current.userId, requestMeta(req), realWithdrawGuard);
   // 계정은 이미 소프트 삭제됐고 서비스가 모든 세션을 폐기했다 — 클라이언트의 refresh 쿠키도 지운다.
   // step_up/2fa_challenge 쿠키도 함께 지워 공유 브라우저에서의 잔존 노출을 막는다.
   const res = Response.json({ ok: true }, { headers: { "set-cookie": clearRefreshCookie() } });
