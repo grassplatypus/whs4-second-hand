@@ -22,6 +22,7 @@ export const searchSchema = z.object({
   minPrice: z.number().int().min(0).optional(),
   maxPrice: z.number().int().min(0).optional(),
   q: z.string().optional(),
+  status: z.enum(["SELLING", "RESERVED", "SOLD"]).optional(),
   cursor: z.string().optional(),
   limit: z.number().int().min(1).max(50).default(20),
 });
@@ -139,11 +140,13 @@ export async function searchProducts(
     if (!hasDistance && !cursorPayload.createdAt) throw invalidInput();
   }
 
-  // 기본 필터: 삭제된 상품 제외, 판매완료(SOLD) 제외 (SELLING/RESERVED만 노출)
-  const baseConditions: Prisma.Sql[] = [
-    Prisma.sql`p."deletedAt" IS NULL`,
-    Prisma.sql`p."status" != 'SOLD'`,
-  ];
+  // 상태 필터: 지정되면 그 상태만, 없으면 기본(판매완료 제외 — 판매중/예약중).
+  const baseConditions: Prisma.Sql[] = [Prisma.sql`p."deletedAt" IS NULL`];
+  if (input.status) {
+    baseConditions.push(Prisma.sql`p."status" = ${input.status}::"ProductStatus"`);
+  } else {
+    baseConditions.push(Prisma.sql`p."status" != 'SOLD'`);
+  }
   if (input.category) {
     baseConditions.push(Prisma.sql`p."category" = ${input.category}::"Category"`);
   }
