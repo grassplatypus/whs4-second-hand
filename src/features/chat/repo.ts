@@ -30,6 +30,8 @@ export interface Block {
   createdAt: Date;
 }
 
+export type ReportStatus = "open" | "resolved" | "dismissed";
+
 export interface Report {
   _id: string;
   reporterId: string;
@@ -38,7 +40,13 @@ export interface Report {
   reason: string;
   snapshot?: string;
   createdAt: Date;
-  status: "open";
+  status: ReportStatus;
+}
+
+export interface ListReportsOptions {
+  /** 특정 상태만(미지정이면 전체). 목록은 항상 open 우선·최신순. */
+  status?: ReportStatus;
+  limit?: number;
 }
 
 export type NewConversation = Omit<Conversation, "_id">;
@@ -71,6 +79,10 @@ export interface ChatRepo {
   block(blockerId: string, blockedId: string): Promise<void>;
   unblock(blockerId: string, blockedId: string): Promise<void>;
   insertReport(report: NewReport): Promise<void>;
+  /** 관리자 신고 관리(#6)용 — open 우선·최신순 목록. */
+  listReports(opts?: ListReportsOptions): Promise<Report[]>;
+  /** 관리자 신고 처리(#6)용 — 상태를 resolved/dismissed로. */
+  updateReportStatus(id: string, status: Exclude<ReportStatus, "open">): Promise<void>;
   updateLastMessageAt(conversationId: string, at: Date): Promise<void>;
 }
 
@@ -152,6 +164,19 @@ export class InMemoryChatRepo implements ChatRepo {
 
   async insertReport(report: NewReport): Promise<void> {
     this.reports.push({ _id: randomUUID(), ...report });
+  }
+
+  async listReports(opts?: ListReportsOptions): Promise<Report[]> {
+    const rank = (s: ReportStatus) => (s === "open" ? 0 : 1); // open을 항상 앞으로
+    let rows = this.reports.slice();
+    if (opts?.status) rows = rows.filter((r) => r.status === opts.status);
+    rows.sort((a, b) => rank(a.status) - rank(b.status) || b.createdAt.getTime() - a.createdAt.getTime());
+    return (opts?.limit ? rows.slice(0, opts.limit) : rows).map((r) => ({ ...r }));
+  }
+
+  async updateReportStatus(id: string, status: Exclude<ReportStatus, "open">): Promise<void> {
+    const report = this.reports.find((r) => r._id === id);
+    if (report) report.status = status;
   }
 
   async updateLastMessageAt(conversationId: string, at: Date): Promise<void> {
@@ -258,6 +283,26 @@ export class MongoChatRepo implements ChatRepo {
     const db = await getChatDb();
     const doc: Report = { _id: randomUUID(), ...report };
     await db.collection<Report>(COLLECTIONS.reports).insertOne(doc);
+  }
+
+  async listReports(opts?: ListReportsOptions): Promise<Report[]> {
+    const db = await getChatDb();
+    const filter = opts?.status ? { status: opts.status } : {};
+    const cursor = db
+      .collection<Report>(COLLECTIONS.reports)
+      .find(filter)
+      // open(=아직 처리 안 됨) 우선, 그다음 최신순. status 문자열 오름차순상 open<resolved<dismissed는 아니므로
+      // 애플리케이션에서 open 여부를 우선 키로 쓰기 위해 정렬은 createdAt만 걸고 open을 앞으로 재배치한다.
+      .sort({ createdAt: -1 });
+    if (opts?.limit) cursor.limit(opts.limit);
+    const rows = await cursor.toArray();
+    const rank = (s: ReportStatus) => (s === "open" ? 0 : 1);
+    return rows.sort((a, b) => rank(a.status) - rank(b.status) || b.createdAt.getTime() - a.createdAt.getTime());
+  }
+
+  async updateReportStatus(id: string, status: Exclude<ReportStatus, "open">): Promise<void> {
+    const db = await getChatDb();
+    await db.collection<Report>(COLLECTIONS.reports).updateOne({ _id: id }, { $set: { status } });
   }
 
   async updateLastMessageAt(conversationId: string, at: Date): Promise<void> {

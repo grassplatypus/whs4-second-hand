@@ -179,4 +179,26 @@ describe("InMemoryChatRepo", () => {
     // insertReport는 조회 API가 없으므로 예외 없이 완료되는지만 확인한다.
     expect(true).toBe(true);
   });
+
+  it("lists reports open-first then newest, filters by status, and updates status (관리자용)", async () => {
+    const repo = new InMemoryChatRepo();
+    await repo.insertReport({ reporterId: "u1", targetType: "user", targetId: "b1", reason: "오래된 open", createdAt: new Date("2026-07-01"), status: "open" });
+    await repo.insertReport({ reporterId: "u2", targetType: "message", targetId: "m1", reason: "최신 open", createdAt: new Date("2026-07-20"), status: "open" });
+    await repo.insertReport({ reporterId: "u3", targetType: "user", targetId: "b2", reason: "이미 처리됨", createdAt: new Date("2026-07-24"), status: "resolved" });
+
+    const all = await repo.listReports();
+    // resolved가 가장 최신이어도 open 두 건이 앞에 온다.
+    expect(all.map((r) => r.reason)).toEqual(["최신 open", "오래된 open", "이미 처리됨"]);
+
+    const onlyOpen = await repo.listReports({ status: "open" });
+    expect(onlyOpen).toHaveLength(2);
+    expect(onlyOpen.every((r) => r.status === "open")).toBe(true);
+
+    const target = onlyOpen.find((r) => r.reason === "최신 open")!;
+    await repo.updateReportStatus(target._id, "dismissed");
+    const afterOpen = await repo.listReports({ status: "open" });
+    expect(afterOpen.map((r) => r.reason)).toEqual(["오래된 open"]);
+    const dismissed = await repo.listReports({ status: "dismissed" });
+    expect(dismissed.map((r) => r.reason)).toEqual(["최신 open"]);
+  });
 });
