@@ -27,6 +27,8 @@ const schema = z.object({
   KAKAO_LOCAL_API_KEY: z.string().optional(),
   OCTOMO_API_KEY: z.string().optional(),
   OCTOMO_SENDER: z.string().optional(),
+  // 채팅(#4)용 Mongo. 앱 코드에서는 아직 연결하지 않고 이번 태스크의 클라이언트/repo만 사용.
+  MONGO_URL: z.string().default("mongodb://localhost:27017/chat"),
   NODE_ENV: z.enum(["development", "production", "test"]),
 });
 
