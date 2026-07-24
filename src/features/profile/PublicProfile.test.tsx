@@ -7,6 +7,7 @@ import ko from "@/i18n/messages/ko.json";
 const profile: PublicProfileView = {
   nickname: "풀숲여우",
   bio: "동네 중고 거래 좋아해요",
+  avatarPath: null,
   region: "서울시 강남구 역삼동",
   phoneVerified: true,
   createdAt: "2025-01-01T00:00:00.000Z",
@@ -46,6 +47,7 @@ describe("PublicProfile — safe subset only", () => {
     const { container } = renderIt({
       nickname: "익명유저",
       bio: null,
+      avatarPath: null,
       region: null,
       phoneVerified: false,
       createdAt: "2025-06-15T00:00:00.000Z",

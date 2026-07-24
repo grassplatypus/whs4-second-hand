@@ -200,6 +200,7 @@ describe("getProduct", () => {
     // PII fields, the service must never copy them into the returned detail object.
     return {
       nickname: "판매자닉네임",
+      avatarPath: "avatars/pic.webp", // 공개 프로필 사진 경로 — PII 아님(닉네임과 함께 노출 가능)
       email: "seller@example.com",
       phone: "01099998888",
       emailCiphertext: encryptPII("seller@example.com"),
@@ -235,8 +236,8 @@ describe("getProduct", () => {
 
     expect(json).not.toContain("seller@example.com");
     expect(json).not.toContain("01099998888");
-    expect((detail as any).seller).toEqual({ nickname: "판매자닉네임" });
-    expect(Object.keys((detail as any).seller)).toEqual(["nickname"]);
+    expect((detail as any).seller).toEqual({ nickname: "판매자닉네임", avatarPath: "avatars/pic.webp" });
+    expect(Object.keys((detail as any).seller).sort()).toEqual(["avatarPath", "nickname"]);
     expect(detail.title).toBe("아이폰 팝니다");
     expect(detail.lat).toBe(37.5);
     expect(detail.lng).toBe(127.03);

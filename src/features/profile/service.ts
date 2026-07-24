@@ -8,6 +8,7 @@ import type { AuthDb } from "@/features/auth/db";
 export interface MyProfile {
   nickname: string;
   bio: string | null;
+  avatarPath: string | null;
   region: string | null;
   phoneVerified: boolean;
   twoFactorMethod: string;
@@ -20,6 +21,7 @@ export interface MyProfile {
 export interface PublicProfile {
   nickname: string;
   bio: string | null;
+  avatarPath: string | null;
   region: string | null;
   phoneVerified: boolean;
   createdAt: Date;
@@ -64,6 +66,7 @@ export async function getMyProfile(db: AuthDb, userId: string): Promise<MyProfil
     select: {
       nickname: true,
       bio: true,
+      avatarPath: true,
       regionCiphertext: true,
       phoneVerifiedAt: true,
       twoFactorMethod: true,
@@ -79,6 +82,7 @@ export async function getMyProfile(db: AuthDb, userId: string): Promise<MyProfil
   return {
     nickname: user.nickname,
     bio: user.bio,
+    avatarPath: user.avatarPath,
     region: user.regionCiphertext ? decryptPII(user.regionCiphertext) : null,
     phoneVerified: user.phoneVerifiedAt != null,
     twoFactorMethod: user.twoFactorMethod,
@@ -99,6 +103,7 @@ export async function getPublicProfile(db: AuthDb, nickname: string): Promise<Pu
     select: {
       nickname: true,
       bio: true,
+      avatarPath: true,
       regionCiphertext: true,
       phoneVerifiedAt: true,
       deletedAt: true,
@@ -110,6 +115,7 @@ export async function getPublicProfile(db: AuthDb, nickname: string): Promise<Pu
   return {
     nickname: user.nickname,
     bio: user.bio,
+    avatarPath: user.avatarPath,
     region: user.regionCiphertext ? decryptPII(user.regionCiphertext) : null,
     phoneVerified: user.phoneVerifiedAt != null,
     createdAt: user.createdAt,
@@ -131,6 +137,7 @@ export async function getPublicProfileWithProducts(
       id: true,
       nickname: true,
       bio: true,
+      avatarPath: true,
       regionCiphertext: true,
       phoneVerifiedAt: true,
       deletedAt: true,
@@ -142,6 +149,7 @@ export async function getPublicProfileWithProducts(
   const profile: PublicProfile = {
     nickname: user.nickname,
     bio: user.bio,
+    avatarPath: user.avatarPath,
     region: user.regionCiphertext ? decryptPII(user.regionCiphertext) : null,
     phoneVerified: user.phoneVerifiedAt != null,
     createdAt: user.createdAt,

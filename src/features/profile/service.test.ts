@@ -68,7 +68,7 @@ describe("getPublicProfile", () => {
       phoneVerified: true,
       createdAt: new Date("2025-01-01T00:00:00Z"),
     });
-    expect(Object.keys(result).sort()).toEqual(["bio", "createdAt", "nickname", "phoneVerified", "region"].sort());
+    expect(Object.keys(result).sort()).toEqual(["avatarPath", "bio", "createdAt", "nickname", "phoneVerified", "region"].sort());
     const json = JSON.stringify(result);
     expect(json).not.toContain(EMAIL_PLAINTEXT);
     expect(json).not.toContain(PHONE_PLAINTEXT);

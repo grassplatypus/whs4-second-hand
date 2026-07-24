@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
@@ -11,6 +11,7 @@ import { Avatar } from "@/features/shell/Avatar";
 export interface MyProfileView {
   nickname: string;
   bio: string | null;
+  avatarPath: string | null;
   region: string | null;
   phoneVerified: boolean;
   twoFactorMethod: string;
@@ -18,6 +19,12 @@ export interface MyProfileView {
   hasPassword: boolean;
   createdAt: string;
 }
+
+const AVATAR_ERROR_KEYS: Record<string, string> = {
+  IMAGE_TOO_LARGE: "avatarTooLarge",
+  INVALID_IMAGE: "avatarInvalid",
+  UPLOAD_FAILED: "avatarFailed",
+};
 
 // OAuth 식별자(raw enum) → 표시용 이름 카탈로그 키. ConnectionsManager와 같은 매핑.
 const PROVIDER_LABEL_KEYS: Record<string, string> = {
@@ -62,6 +69,50 @@ export function MyPage({ initialProfile }: { initialProfile: MyProfileView }) {
     }
   }
 
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function uploadAvatar(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // 같은 파일 재선택 허용
+    if (!file || uploadingAvatar) return;
+    setError(null);
+    setUploadingAvatar(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/profile/avatar", { method: "POST", body: form });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setError(t(AVATAR_ERROR_KEYS[body.code] ?? "avatarFailed"));
+        return;
+      }
+      const { path } = (await res.json()) as { path: string };
+      setProfile((p) => ({ ...p, avatarPath: path }));
+      router.refresh();
+    } catch {
+      setError(t("avatarFailed"));
+    } finally {
+      setUploadingAvatar(false);
+    }
+  }
+
+  async function removeAvatar() {
+    if (uploadingAvatar) return;
+    setError(null);
+    setUploadingAvatar(true);
+    try {
+      const res = await fetch("/api/profile/avatar", { method: "DELETE" });
+      if (!res.ok) return setError(t("avatarFailed"));
+      setProfile((p) => ({ ...p, avatarPath: null }));
+      router.refresh();
+    } catch {
+      setError(t("avatarFailed"));
+    } finally {
+      setUploadingAvatar(false);
+    }
+  }
+
   const connectionLabel =
     profile.identities.length > 0
       ? profile.identities.map((p) => tOauth(PROVIDER_LABEL_KEYS[p] ?? p)).join(", ")
@@ -70,9 +121,32 @@ export function MyPage({ initialProfile }: { initialProfile: MyProfileView }) {
   return (
     <div className="flex w-full max-w-2xl flex-col gap-6">
       <div className="flex items-center gap-4">
-        <Avatar nickname={profile.nickname} size={64} />
-        <div className="flex flex-col">
+        <div className="relative">
+          <Avatar nickname={profile.nickname} src={profile.avatarPath} size={64} />
+        </div>
+        <div className="flex flex-col gap-1">
           <h2 className="text-xl font-bold text-zinc-900 dark:text-zinc-50">{profile.nickname}</h2>
+          <div className="flex items-center gap-2 text-sm">
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              disabled={uploadingAvatar}
+              className="font-medium text-emerald-600 hover:underline disabled:opacity-50 dark:text-emerald-400"
+            >
+              {t("changePhoto")}
+            </button>
+            {profile.avatarPath && (
+              <button
+                type="button"
+                onClick={() => void removeAvatar()}
+                disabled={uploadingAvatar}
+                className="text-zinc-400 hover:text-zinc-600 disabled:opacity-50 dark:hover:text-zinc-200"
+              >
+                {t("removePhoto")}
+              </button>
+            )}
+          </div>
+          <input ref={fileRef} type="file" accept="image/*" onChange={uploadAvatar} className="hidden" />
           <Link
             href={`/u/${encodeURIComponent(profile.nickname)}`}
             className="text-sm text-emerald-600 hover:underline dark:text-emerald-400"

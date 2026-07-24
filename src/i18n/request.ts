@@ -43,6 +43,8 @@ export default getRequestConfig(async () => {
 
   return {
     locale,
+    // 날짜·시간은 항상 서울(KST) 기준으로 표시한다 — 서버/클라이언트 시간대가 달라도 일관.
+    timeZone: "Asia/Seoul",
     messages: (await import(`./messages/${locale}.json`)).default,
   };
 });

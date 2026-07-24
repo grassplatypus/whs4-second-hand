@@ -7,6 +7,7 @@ export interface SessionUser {
   userId: string;
   nickname: string;
   role: "USER" | "SUSPENDED" | "ADMIN";
+  avatarPath: string | null;
 }
 
 /**
@@ -20,8 +21,13 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   if (!current) return null;
   const user = await prisma.user.findUnique({
     where: { id: current.userId },
-    select: { nickname: true, role: true, deletedAt: true },
+    select: { nickname: true, role: true, avatarPath: true, deletedAt: true },
   });
   if (!user || user.deletedAt || user.role === "SUSPENDED") return null;
-  return { userId: current.userId, nickname: user.nickname, role: user.role as SessionUser["role"] };
+  return {
+    userId: current.userId,
+    nickname: user.nickname,
+    role: user.role as SessionUser["role"],
+    avatarPath: user.avatarPath,
+  };
 }

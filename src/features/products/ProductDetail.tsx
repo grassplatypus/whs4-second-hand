@@ -25,6 +25,7 @@ export interface ProductDetailView {
   directPlace: string | null;
   images: { path: string; order: number }[];
   sellerNickname: string;
+  sellerAvatarPath: string | null;
   createdAt: string;
 }
 
@@ -225,10 +226,10 @@ export function ProductDetail({ product, isOwner }: { product: ProductDetailView
 
           <Card className="flex flex-col gap-3">
             <div className="flex items-center gap-3">
-              <Avatar nickname={product.sellerNickname} />
+              <Avatar nickname={product.sellerNickname} src={product.sellerAvatarPath} />
               <div className="flex flex-col">
                 <a
-                  href={`/u/${product.sellerNickname}`}
+                  href={`/u/${encodeURIComponent(product.sellerNickname)}`}
                   className="font-medium text-zinc-900 hover:underline dark:text-zinc-100"
                 >
                   {product.sellerNickname}

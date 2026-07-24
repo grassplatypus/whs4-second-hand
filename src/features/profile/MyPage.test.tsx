@@ -11,6 +11,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh, push: vi.fn() }
 const baseProfile: MyProfileView = {
   nickname: "풀숲여우",
   bio: "안녕하세요",
+  avatarPath: null,
   region: "서울시 강남구 역삼동",
   phoneVerified: true,
   twoFactorMethod: "TOTP",

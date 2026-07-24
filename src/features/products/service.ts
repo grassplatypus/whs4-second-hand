@@ -42,7 +42,7 @@ export interface ProductDetail {
   regionLabel: string | null;
   directPlace: string | null;
   images: { path: string; order: number }[];
-  seller: { nickname: string };
+  seller: { nickname: string; avatarPath: string | null };
   createdAt: Date;
 }
 
@@ -122,7 +122,7 @@ export async function getProduct(db: ProductDb, id: string): Promise<ProductDeta
       deletedAt: true,
       createdAt: true,
       images: { select: { path: true, order: true }, orderBy: { order: "asc" } },
-      seller: { select: { nickname: true } },
+      seller: { select: { nickname: true, avatarPath: true } },
     },
   });
   if (!product || product.deletedAt) throw notFound();
@@ -139,7 +139,7 @@ export async function getProduct(db: ProductDb, id: string): Promise<ProductDeta
     regionLabel: product.regionLabel,
     directPlace: product.directPlace,
     images: product.images.map((img: { path: string; order: number }) => ({ path: img.path, order: img.order })),
-    seller: { nickname: product.seller.nickname },
+    seller: { nickname: product.seller.nickname, avatarPath: product.seller.avatarPath },
     createdAt: product.createdAt,
   };
 }

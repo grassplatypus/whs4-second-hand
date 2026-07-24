@@ -8,7 +8,7 @@ import { Avatar } from "./Avatar";
 import type { SessionUser } from "./getSessionUser";
 
 /** navbar에는 PII/내부 id 없이 표시에 필요한 최소 정보만 넘긴다. */
-type NavUser = Pick<SessionUser, "nickname" | "role">;
+type NavUser = Pick<SessionUser, "nickname" | "role" | "avatarPath">;
 
 const NAV = [
   { href: "/products", key: "products" },
@@ -88,7 +88,7 @@ export function NavBar({ user }: { user: NavUser | null }) {
                 href="/mypage"
                 className="hidden items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 sm:inline-flex dark:text-zinc-300 dark:hover:bg-zinc-900"
               >
-                <Avatar nickname={user.nickname} size={24} />
+                <Avatar nickname={user.nickname} src={user.avatarPath} size={24} />
                 {user.nickname}
               </Link>
               <button
@@ -159,7 +159,7 @@ export function NavBar({ user }: { user: NavUser | null }) {
                   </Link>
                 )}
                 <Link href="/mypage" onClick={() => setOpen(false)} className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
-                  <Avatar nickname={user.nickname} size={22} />
+                  <Avatar nickname={user.nickname} src={user.avatarPath} size={22} />
                   {user.nickname}
                 </Link>
                 <Link href="/settings" onClick={() => setOpen(false)} className="rounded-md px-3 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">

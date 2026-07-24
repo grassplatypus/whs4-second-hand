@@ -20,6 +20,7 @@ const product: ProductDetailView = {
   directPlace: "역삼역 2번 출구",
   images: [{ path: "products/a.webp", order: 0 }],
   sellerNickname: "풀숲여우",
+  sellerAvatarPath: null,
   createdAt: "2025-01-01T00:00:00.000Z",
 };
 
@@ -50,7 +51,7 @@ describe("ProductDetail", () => {
     expect(screen.getByText("아이폰 팝니다")).toBeInTheDocument();
     expect(screen.getByText("500,000원")).toBeInTheDocument();
     expect(screen.getByText("역삼역 2번 출구")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "풀숲여우" })).toHaveAttribute("href", "/u/풀숲여우");
+    expect(screen.getByRole("link", { name: "풀숲여우" })).toHaveAttribute("href", `/u/${encodeURIComponent("풀숲여우")}`);
   });
 
   it("shows an enabled chat button for non-owners, and no owner controls", () => {

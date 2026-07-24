@@ -42,6 +42,7 @@ export default async function ProductDetailPage({ params }: { params: Promise<{ 
     directPlace: product.directPlace,
     images: product.images,
     sellerNickname: product.seller.nickname,
+    sellerAvatarPath: product.seller.avatarPath,
     createdAt: product.createdAt.toISOString(),
   };
 

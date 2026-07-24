@@ -23,6 +23,7 @@ export interface PublicProfileProductView {
 export interface PublicProfileView {
   nickname: string;
   bio: string | null;
+  avatarPath: string | null;
   region: string | null;
   phoneVerified: boolean;
   createdAt: string;
@@ -50,7 +51,7 @@ export function PublicProfile({ profile }: { profile: PublicProfileView }) {
   return (
     <div className="flex w-full max-w-2xl flex-col gap-6">
       <div className="flex items-center gap-4">
-        <Avatar nickname={profile.nickname} size={64} />
+        <Avatar nickname={profile.nickname} src={profile.avatarPath} size={64} />
         <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-50">{profile.nickname}</h1>
       </div>
 

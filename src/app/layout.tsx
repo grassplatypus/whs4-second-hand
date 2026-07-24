@@ -38,7 +38,7 @@ export default async function RootLayout({
       <body className="min-h-full flex flex-col bg-zinc-50 dark:bg-zinc-950">
         <NextIntlClientProvider locale={locale} messages={messages}>
           {/* userId는 서버 전용 — 클라이언트 navbar엔 닉네임·역할만 넘긴다(내부 id 직렬화 방지). */}
-          <NavBar user={user ? { nickname: user.nickname, role: user.role } : null} />
+          <NavBar user={user ? { nickname: user.nickname, role: user.role, avatarPath: user.avatarPath } : null} />
           {children}
         </NextIntlClientProvider>
       </body>
