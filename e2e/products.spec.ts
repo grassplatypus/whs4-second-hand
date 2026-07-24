@@ -102,8 +102,9 @@ test("register → set location → create product → list/detail 공개조회 
   expect(detailBody.title).toBe("아이폰 14 팝니다");
   expect(detailBody.price).toBe(500000);
   expect(detailBody.status).toBe("SELLING");
-  expect(detailBody.seller).toEqual({ nickname: id });
-  expect(Object.keys(detailBody.seller)).toEqual(["nickname"]);
+  // 판매자는 닉네임과 (있으면) 프로필 사진 경로만 — 이메일·전화 같은 개인정보는 없다.
+  expect(detailBody.seller.nickname).toBe(id);
+  expect(Object.keys(detailBody.seller).sort()).toEqual(["avatarPath", "nickname"]);
 
   // 좌표: 노출은 되지만(동네 수준 표시용) 판매자의 이미 거칠어진 스냅샷과 정확히 같아야
   // 하고, 소수 2자리 격자를 벗어나면 안 된다(정확 주소가 새는 통로가 없어야 함).

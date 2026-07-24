@@ -33,7 +33,8 @@ test("social signup → relogin same user → link second → unlink", async ({ 
 
   // 2) 같은 mock_as로 재로그인 → 같은 유저(중복 생성 없음): 연동 페이지에 KAKAO 1개
   await page.goto("/settings/connections");
-  await expect(page.getByText("카카오로 계속하기")).toBeVisible();
+  // 연결된 계정 행은 로그인 CTA가 아니라 제공자 표시명(카카오)으로 보여준다.
+  await expect(page.getByText("카카오", { exact: false }).first()).toBeVisible();
   await expect(page.getByRole("button", { name: "연결 해제" })).toHaveCount(1); // 카카오만 연결됨
 
   // 3) 네이버 연동 (로그인 상태 = refresh 쿠키)

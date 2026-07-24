@@ -41,7 +41,7 @@ test("register → login → /mypage 소개글 편집·저장, 공개 프로필�
   // 페이지 레벨: /mypage에서 소개글을 실제로 편집·저장하고 화면에 반영되는지 확인한다.
   await page.goto("/mypage");
   await expect(page.getByRole("heading", { name: "마이페이지" })).toBeVisible();
-  await expect(page.getByText(id)).toBeVisible();
+  await expect(page.getByText(id).first()).toBeVisible();
   await expect(page.getByText("아직 소개글이 없어요")).toBeVisible();
 
   const bio = "안녕하세요, 중고 거래 좋아합니다.";
@@ -72,7 +72,7 @@ test("register → login → /mypage 소개글 편집·저장, 공개 프로필�
   const publicRes = await context.request.get(`/api/profile/${id}`);
   expect(publicRes.ok()).toBeTruthy();
   const publicBody = await publicRes.json();
-  expect(Object.keys(publicBody).sort()).toEqual(["bio", "createdAt", "nickname", "phoneVerified", "region"].sort());
+  expect(Object.keys(publicBody).sort()).toEqual(["avatarPath", "bio", "createdAt", "nickname", "phoneVerified", "region"].sort());
   expect(JSON.stringify(publicBody)).not.toContain(email);
   expect(JSON.stringify(publicBody)).not.toContain(PHONE);
 });

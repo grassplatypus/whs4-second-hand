@@ -392,14 +392,16 @@ export class MongoChatRepo implements ChatRepo {
 
   async upsertAutoReport(report: NewReport): Promise<void> {
     const db = await getChatDb();
-    await db.collection<Report>(COLLECTIONS.reports).updateOne(
+    const col = db.collection<Report>(COLLECTIONS.reports);
+    // 같은 대상의 열린 신고가 있으면 auto 표시만 올리고, 없으면 새로 만든다.
+    // ($set과 $setOnInsert가 같은 필드를 건드리면 Mongo가 거부하므로 두 단계로 나눈다.)
+    const res = await col.updateOne(
       { targetType: report.targetType, targetId: report.targetId, status: "open" },
-      {
-        $set: { auto: true },
-        $setOnInsert: { _id: randomUUID(), ...report, auto: true },
-      },
-      { upsert: true },
+      { $set: { auto: true, snapshot: report.snapshot } },
     );
+    if (res.matchedCount === 0) {
+      await col.insertOne({ _id: randomUUID(), ...report, auto: true });
+    }
   }
 
   async mergeUserReport(report: NewReport): Promise<void> {

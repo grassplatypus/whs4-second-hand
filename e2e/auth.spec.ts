@@ -138,7 +138,7 @@ test("signup page renders in Korean and switches to English", async ({ page }) =
   await page.goto("/signup");
   await expect(page.getByRole("heading", { name: "회원가입" })).toBeVisible();
   await expect(page.getByLabel("이메일")).toBeVisible();
-  await expect(page.getByLabel("개인정보 수집·이용에 동의해요")).toBeVisible();
+  await expect(page.getByRole("checkbox")).toBeVisible(); // 동의 체크박스(문구에 약관 링크 포함)
 
   await page.context().addCookies([{ name: "NEXT_LOCALE", value: "en", url: "http://localhost:3000" }]);
   await page.goto("/signup");
