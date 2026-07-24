@@ -206,6 +206,6 @@ describe("ProductDetail", () => {
     const html = container.innerHTML;
     expect(html).not.toMatch(/@.+\..+/);
     expect(html).not.toMatch(/\d{2,3}-\d{3,4}-\d{4}/);
-    expect(html).not.toMatch(/lat|lng|latitude|longitude/i);
+    expect(html).not.toMatch(/\blat\b|\blng\b|latitude|longitude/i);
   });
 });

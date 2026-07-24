@@ -262,7 +262,15 @@
     "notFound": "Item not found",
     "forbidden": "You don't have permission",
     "invalidTransition": "That status change isn't allowed",
-    "invalidImage": "Couldn't process that image"
+    "invalidImage": "Couldn't process that image",
+    "statusFilterLabel": "Status",
+    "statusAll": "All",
+    "locationDenied": "Location permission needed · radius not applied",
+    "resetFilters": "Reset filters",
+    "emptyCta": "List an item",
+    "backToList": "Back to list",
+    "cancelButton": "Cancel",
+    "unsavedChangesConfirm": "You have unsaved changes. Leave anyway?"
   },
   "chat": {
     "listTitle": "Chat",

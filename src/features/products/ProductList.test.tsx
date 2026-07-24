@@ -113,9 +113,65 @@ describe("ProductList", () => {
     expect(screen.queryByRole("button", { name: ko.product.loadMore })).not.toBeInTheDocument();
   });
 
+  it("re-fetches immediately with the chosen status when a status filter button is clicked, and omits it when 전체 is chosen again", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(page([card]));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderIt();
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(new URL(fetchMock.mock.calls[0][0], "http://localhost").searchParams.has("status")).toBe(false);
+
+    await user.click(screen.getByRole("button", { name: ko.product.status.SELLING }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(new URL(fetchMock.mock.calls[1][0], "http://localhost").searchParams.get("status")).toBe("SELLING");
+
+    await user.click(screen.getByRole("button", { name: ko.product.status.SOLD }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    expect(new URL(fetchMock.mock.calls[2][0], "http://localhost").searchParams.get("status")).toBe("SOLD");
+
+    await user.click(screen.getByRole("button", { name: ko.product.statusAll }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+    expect(new URL(fetchMock.mock.calls[3][0], "http://localhost").searchParams.has("status")).toBe(false);
+  });
+
   it("maps a failed fetch to the catalog failed message", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 500, json: async () => ({}) }));
     renderIt();
     expect(await screen.findByRole("alert")).toHaveTextContent(ko.product.failed);
+  });
+
+  it("shows an empty state with a reset-filters action when the search returns no results", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(page([]));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderIt();
+
+    expect(await screen.findByText(ko.product.empty)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: ko.product.emptyCta })).toHaveAttribute("href", "/products/new");
+
+    await user.type(screen.getByLabelText(ko.product.searchLabel), "아이폰");
+    await user.click(screen.getByRole("button", { name: ko.product.resetFilters }));
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    expect(screen.getByLabelText(ko.product.searchLabel)).toHaveValue("");
+  });
+
+  it("notes that the radius filter didn't apply when geolocation fails", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(page([]));
+    vi.stubGlobal("fetch", fetchMock);
+    const getCurrentPosition = vi.fn((_success: PositionCallback, error: PositionErrorCallback) => error({} as GeolocationPositionError));
+    Object.defineProperty(window.navigator, "geolocation", {
+      value: { getCurrentPosition },
+      configurable: true,
+    });
+    const user = userEvent.setup();
+    renderIt();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    await user.type(screen.getByLabelText(ko.product.radius), "5");
+    await user.click(screen.getByRole("button", { name: ko.product.search }));
+
+    expect(await screen.findByText(ko.product.locationDenied)).toBeInTheDocument();
   });
 });

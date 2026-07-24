@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { useTranslations, useFormatter } from "next-intl";
+import { Card, Field, Input, Button } from "@/features/shell/ui";
+import { Avatar } from "@/features/shell/Avatar";
 import { STATUS_TRANSITIONS, type Status } from "./categories";
 import { ImageGallery } from "./ImageGallery";
 
@@ -58,10 +60,17 @@ const STATUS_BUTTON_KEY: Record<Status, string> = {
   SOLD: "toSold",
 };
 
+const STATUS_BADGE_STYLE: Record<string, string> = {
+  SELLING: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300",
+  RESERVED: "bg-amber-100 text-amber-700 dark:bg-amber-900/50 dark:text-amber-300",
+  SOLD: "bg-zinc-200 text-zinc-600 dark:bg-zinc-700 dark:text-zinc-300",
+};
+
 export function ProductDetail({ product, isOwner }: { product: ProductDetailView; isOwner: boolean }) {
   const t = useTranslations("product");
   const tc = useTranslations("chat");
   const te = useTranslations("escrow");
+  const format = useFormatter();
   const router = useRouter();
 
   const [status, setStatus] = useState(product.status);
@@ -179,188 +188,184 @@ export function ProductDetail({ product, isOwner }: { product: ProductDetailView
     }
   }
 
-  const priceLabel = product.price === 0 ? t("free") : `${product.price.toLocaleString()}${t("won")}`;
+  const priceLabel = product.price === 0 ? t("free") : `${format.number(product.price)}${t("won")}`;
   const nextStatuses = STATUS_TRANSITIONS[status as Status] ?? [];
 
   return (
-    <div className="flex w-full max-w-2xl flex-col gap-4">
-      <ImageGallery images={product.images} category={product.category} title={product.title} />
+    <div className="flex w-full max-w-4xl flex-col gap-4">
+      <a
+        href="/products"
+        className="inline-flex w-fit items-center gap-1 text-sm text-zinc-500 hover:text-zinc-700 dark:text-zinc-400 dark:hover:text-zinc-200"
+      >
+        <span aria-hidden>←</span>
+        {t("backToList")}
+      </a>
 
-      <h1 className="text-xl font-semibold">{product.title}</h1>
-      <p className="text-lg">{priceLabel}</p>
-      <p className="text-sm text-zinc-500">
-        <span>{t(`category.${product.category}`)}</span> · <span>{t(`status.${status}`)}</span>
-      </p>
-      <p className="whitespace-pre-wrap">{product.description}</p>
+      <div className="grid gap-6 md:grid-cols-2">
+        <ImageGallery images={product.images} category={product.category} title={product.title} />
 
-      <dl className="flex flex-col gap-1 text-sm text-zinc-600">
-        {product.regionLabel && (
-          <div className="flex justify-between">
-            <dd>{product.regionLabel}</dd>
+        <div className="flex flex-col gap-4">
+          <div className="flex items-start justify-between gap-3">
+            <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">{product.title}</h1>
+            <span
+              className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${
+                STATUS_BADGE_STYLE[status] ?? "bg-zinc-200 text-zinc-600"
+              }`}
+            >
+              {t(`status.${status}`)}
+            </span>
           </div>
-        )}
-        {product.directPlace && (
-          <div className="flex justify-between gap-2">
-            <dt>{t("directPlace")}</dt>
-            <dd>{product.directPlace}</dd>
-          </div>
-        )}
-        <div className="flex justify-between gap-2">
-          <dt>{t("seller")}</dt>
-          <dd>
-            <a href={`/u/${product.sellerNickname}`} className="text-blue-600 underline">
-              {product.sellerNickname}
-            </a>
-          </dd>
-        </div>
-      </dl>
 
-      {isOwner ? (
-        <div className="flex flex-col gap-3 border-t pt-3">
-          <div className="flex gap-2">
-            <a href={`/products/${product.id}/edit`} className="rounded border px-3 py-2 text-sm">
-              {t("editButton")}
-            </a>
-            {!confirmingDelete ? (
-              <button
-                type="button"
-                onClick={() => setConfirmingDelete(true)}
-                className="rounded border px-3 py-2 text-sm text-red-600"
-              >
-                {t("deleteButton")}
-              </button>
-            ) : (
-              <div className="flex items-center gap-2">
-                <span>{t("deleteConfirm")}</span>
-                <button
-                  type="button"
-                  onClick={doDelete}
-                  disabled={submitting}
-                  className="rounded bg-red-600 px-3 py-2 text-sm text-white disabled:opacity-50"
+          <p className="text-2xl font-bold text-zinc-900 dark:text-zinc-50">{priceLabel}</p>
+          <p className="text-sm text-zinc-500 dark:text-zinc-400">{t(`category.${product.category}`)}</p>
+
+          <Card className="whitespace-pre-wrap text-sm text-zinc-700 dark:text-zinc-300">
+            {product.description}
+          </Card>
+
+          <Card className="flex flex-col gap-3">
+            <div className="flex items-center gap-3">
+              <Avatar nickname={product.sellerNickname} />
+              <div className="flex flex-col">
+                <a
+                  href={`/u/${product.sellerNickname}`}
+                  className="font-medium text-zinc-900 hover:underline dark:text-zinc-100"
                 >
-                  {t("deleteConfirmButton")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfirmingDelete(false)}
-                  className="rounded border px-3 py-2 text-sm"
-                >
-                  {t("deleteCancel")}
-                </button>
+                  {product.sellerNickname}
+                </a>
+                {product.regionLabel && (
+                  <span className="text-xs text-zinc-500 dark:text-zinc-400">{product.regionLabel}</span>
+                )}
+              </div>
+            </div>
+            {product.directPlace && (
+              <div className="flex justify-between gap-2 border-t border-zinc-100 pt-3 text-sm text-zinc-600 dark:border-zinc-800 dark:text-zinc-400">
+                <span>{t("directPlace")}</span>
+                <span>{product.directPlace}</span>
               </div>
             )}
-          </div>
+          </Card>
 
-          {nextStatuses.length > 0 && (
-            <div className="flex gap-2">
-              {nextStatuses.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => void changeStatus(s)}
-                  disabled={submitting}
-                  className="rounded border px-3 py-2 text-sm disabled:opacity-50"
+          {isOwner ? (
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-wrap gap-2">
+                <a
+                  href={`/products/${product.id}/edit`}
+                  className="inline-flex items-center justify-center rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm font-semibold text-zinc-700 transition-colors hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
                 >
-                  {t(STATUS_BUTTON_KEY[s])}
-                </button>
-              ))}
+                  {t("editButton")}
+                </a>
+                {!confirmingDelete ? (
+                  <Button type="button" variant="danger" onClick={() => setConfirmingDelete(true)}>
+                    {t("deleteButton")}
+                  </Button>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm text-zinc-600 dark:text-zinc-400">{t("deleteConfirm")}</span>
+                    <Button type="button" variant="danger" onClick={doDelete} disabled={submitting}>
+                      {t("deleteConfirmButton")}
+                    </Button>
+                    <Button type="button" variant="secondary" onClick={() => setConfirmingDelete(false)}>
+                      {t("deleteCancel")}
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              {nextStatuses.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {nextStatuses.map((s) => (
+                    <Button
+                      key={s}
+                      type="button"
+                      variant="secondary"
+                      onClick={() => void changeStatus(s)}
+                      disabled={submitting}
+                    >
+                      {t(STATUS_BUTTON_KEY[s])}
+                    </Button>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {!composingChat ? (
+                <Button type="button" onClick={() => setComposingChat(true)} className="self-start">
+                  {t("chat")}
+                </Button>
+              ) : (
+                <form onSubmit={startChat} className="flex flex-col gap-2" noValidate>
+                  <Field label={tc("composeTitle")}>
+                    <textarea
+                      value={firstText}
+                      onChange={(e) => setFirstText(e.target.value)}
+                      placeholder={tc("composePlaceholder")}
+                      rows={3}
+                      className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition-colors placeholder:text-zinc-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
+                    />
+                  </Field>
+                  <div className="flex gap-2">
+                    <Button type="submit" disabled={chatSubmitting}>
+                      {tc("send")}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      onClick={() => {
+                        setComposingChat(false);
+                        setFirstText("");
+                      }}
+                    >
+                      {tc("cancel")}
+                    </Button>
+                  </div>
+                </form>
+              )}
+
+              {/* 판매중일 때만 안전거래 요청 — 예약중/판매완료면 서비스가 409라 버튼을 숨긴다. */}
+              {status === "SELLING" &&
+                (!composingEscrow ? (
+                  <Button type="button" variant="secondary" onClick={() => setComposingEscrow(true)} className="self-start">
+                    {te("request")}
+                  </Button>
+                ) : (
+                  <form onSubmit={startEscrow} className="flex flex-col gap-2" noValidate>
+                    <Field label={te("amountInputLabel")}>
+                      <Input
+                        type="number"
+                        min={1}
+                        value={escrowAmount}
+                        onChange={(e) => setEscrowAmount(e.target.value)}
+                      />
+                    </Field>
+                    <div className="flex gap-2">
+                      <Button type="submit" disabled={escrowSubmitting}>
+                        {te("requestSubmit")}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        onClick={() => {
+                          setComposingEscrow(false);
+                          setEscrowAmount(String(product.price));
+                        }}
+                      >
+                        {te("cancel")}
+                      </Button>
+                    </div>
+                  </form>
+                ))}
             </div>
           )}
-        </div>
-      ) : (
-        <div className="flex flex-col gap-2 border-t pt-3">
-          {!composingChat ? (
-            <button
-              type="button"
-              onClick={() => setComposingChat(true)}
-              className="self-start rounded bg-black px-3 py-2 text-white"
-            >
-              {t("chat")}
-            </button>
-          ) : (
-            <form onSubmit={startChat} className="flex flex-col gap-2" noValidate>
-              <label className="flex flex-col gap-1 text-sm">
-                {tc("composeTitle")}
-                <textarea
-                  value={firstText}
-                  onChange={(e) => setFirstText(e.target.value)}
-                  placeholder={tc("composePlaceholder")}
-                  className="rounded border px-2 py-1"
-                />
-              </label>
-              <div className="flex gap-2">
-                <button
-                  type="submit"
-                  disabled={chatSubmitting}
-                  className="rounded bg-black px-3 py-2 text-sm text-white disabled:opacity-50"
-                >
-                  {tc("send")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setComposingChat(false);
-                    setFirstText("");
-                  }}
-                  className="rounded border px-3 py-2 text-sm"
-                >
-                  {tc("cancel")}
-                </button>
-              </div>
-            </form>
+
+          {error && (
+            <p role="alert" className="text-sm text-red-600">
+              {error}
+            </p>
           )}
-
-          {/* 판매중일 때만 안전거래 요청 — 예약중/판매완료면 서비스가 409라 버튼을 숨긴다. */}
-          {status === "SELLING" &&
-            (!composingEscrow ? (
-            <button
-              type="button"
-              onClick={() => setComposingEscrow(true)}
-              className="self-start rounded border px-3 py-2 text-sm"
-            >
-              {te("request")}
-            </button>
-          ) : (
-            <form onSubmit={startEscrow} className="flex flex-col gap-2" noValidate>
-              <label className="flex flex-col gap-1 text-sm">
-                {te("amountInputLabel")}
-                <input
-                  type="number"
-                  min={1}
-                  value={escrowAmount}
-                  onChange={(e) => setEscrowAmount(e.target.value)}
-                  className="rounded border px-2 py-1"
-                />
-              </label>
-              <div className="flex gap-2">
-                <button
-                  type="submit"
-                  disabled={escrowSubmitting}
-                  className="rounded bg-black px-3 py-2 text-sm text-white disabled:opacity-50"
-                >
-                  {te("requestSubmit")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setComposingEscrow(false);
-                    setEscrowAmount(String(product.price));
-                  }}
-                  className="rounded border px-3 py-2 text-sm"
-                >
-                  {te("cancel")}
-                </button>
-              </div>
-            </form>
-          ))}
         </div>
-      )}
-
-      {error && (
-        <p role="alert" className="text-sm text-red-600">
-          {error}
-        </p>
-      )}
+      </div>
     </div>
   );
 }
