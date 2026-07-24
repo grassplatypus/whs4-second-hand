@@ -5,8 +5,9 @@ import { NextIntlClientProvider } from "next-intl";
 import { LoginForm } from "./LoginForm";
 import ko from "@/i18n/messages/ko.json";
 
+const push = vi.fn();
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+  useRouter: () => ({ push, refresh: vi.fn() }),
 }));
 
 function renderForm(oauthError?: string) {
@@ -18,6 +19,7 @@ function renderForm(oauthError?: string) {
 }
 
 beforeEach(() => {
+  push.mockClear();
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ accessToken: "t", expiresIn: 900 }) }));
 });
 
@@ -68,6 +70,31 @@ describe("LoginForm", () => {
   it("shows the oauth error catalog string when passed via prop", () => {
     renderForm(ko.auth.oauth.emailExists);
     expect(screen.getByRole("alert")).toHaveTextContent(ko.auth.oauth.emailExists);
+  });
+
+  it("redirects to /login/2fa when the login response is twoFactorRequired", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ twoFactorRequired: true, method: "TOTP" }) }),
+    );
+    const user = userEvent.setup();
+    renderForm();
+    await user.type(screen.getByLabelText("이메일"), "user@example.com");
+    await user.type(screen.getByLabelText("비밀번호"), "hunter2hunter2");
+    await user.click(screen.getByRole("button", { name: "로그인하기" }));
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/login/2fa"));
+  });
+
+  it("redirects to / on a normal successful login", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({}) }));
+    const user = userEvent.setup();
+    renderForm();
+    await user.type(screen.getByLabelText("이메일"), "user@example.com");
+    await user.type(screen.getByLabelText("비밀번호"), "hunter2hunter2");
+    await user.click(screen.getByRole("button", { name: "로그인하기" }));
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/"));
   });
 
   it("disables the submit button while a request is in flight", async () => {
