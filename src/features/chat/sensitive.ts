@@ -74,13 +74,33 @@ const INNER_SEPARATORS = new Set([
   "·", "‑", "–", "—", "@", "+", ":", ";",
 ]);
 
+/** 글자로 보이는 문자(한글·라틴). 이런 글자를 만나면 번호가 끝난 것으로 본다. */
+function isLetterLike(ch: string): boolean {
+  return (
+    (ch >= "가" && ch <= "힣") ||
+    (ch >= "ㄱ" && ch <= "ㆎ") ||
+    (ch >= "a" && ch <= "z") ||
+    (ch >= "A" && ch <= "Z")
+  );
+}
+
 /**
- * 덩어리를 나누는 자리 — 여기서 끊고, 나중에 "번호를 끊어 적은 것"으로 보이면 다시 합친다.
- * 별표(*)가 여기 있는 이유: 저장되는 본문은 비속어가 `*`로 가려진 상태라,
- * 이걸 그냥 무시하면 "010-1234-5678 ** 3333011234567"이 한 덩어리로 읽혀 아무것도 아닌 길이가 된다.
+ * 덩어리를 나누는 자리인가 — 여기서 끊되, "번호를 끊어 적은 것"으로 보이면 나중에 다시 합친다.
+ *
+ * 공백·줄바꿈은 물론이고 별표·쉼표·이모지·장식 기호(★☆♡)도 여기 해당한다.
+ * 목록으로 나열하지 않고 "글자도 숫자도 구분자도 아닌 것"으로 판단한다 —
+ * 장식 기호는 끝이 없어서, 목록으로 관리하면 새 기호 하나로 감지를 피할 수 있다.
+ *
+ * 별표를 이렇게 다루는 이유: 저장되는 본문은 비속어가 `*`로 가려진 상태라,
+ * 무시해 버리면 "010-1234-5678 ** 3333011234567"이 한 덩어리로 읽혀 아무것도 아닌 길이가 된다.
  * 반대로 끊기만 하면 "010*1234*5678"을 놓치므로, 끊되 합치기 후보로 남긴다.
  */
-const CHUNK_BREAKS = new Set([" ", "\t", "\n", "\r", "*"]);
+function isChunkBreak(ch: string): boolean {
+  if (isRealDigit(ch)) return false;
+  if (INNER_SEPARATORS.has(ch)) return false;
+  if (isLetterLike(ch)) return false;
+  return true;
+}
 
 /** 원문에서 잘라낸 숫자 덩어리 하나. */
 interface Chunk {
@@ -98,13 +118,18 @@ interface Chunk {
 }
 
 /**
- * 가격 범위를 번호로 오해하지 않게 한다.
+ * 번호가 아니라 "숫자를 늘어놓은 것"으로 보이는가 — 가격 범위, 가격 사다리, 사이즈 표 같은 것들.
  *
- * "15000-20000원"은 마디가 둘이고 둘 다 넉넉히 길다 — 실제 계좌·전화번호는 이렇게 안 쓴다
- * (마디가 셋 이상이거나, 아예 구분자 없이 붙여 쓴다).
+ * 실제 계좌·전화번호는 마디 길이가 들쭉날쭉하고(110-234-567890 → 3·3·6) 마디가 넷을 넘지 않는다.
+ * 반면 늘어놓은 숫자는 마디가 여럿이거나(90-95-100-105-110) 길이가 똑같다(10000-13000-15000).
  */
-function looksLikeNumberRange(groupSizes: number[]): boolean {
-  return groupSizes.length === 2 && groupSizes.every((n) => n >= 4);
+function looksLikeNumberList(groupSizes: number[]): boolean {
+  if (groupSizes.length < 2) return false;
+  // 마디가 다섯 이상이면 번호로 쓰지 않는다.
+  if (groupSizes.length >= 5) return true;
+  // 길이가 모두 같고 넉넉히 길면 나열이다("15000-20000", "10000-13000-15000").
+  const allSame = groupSizes.every((n) => n === groupSizes[0]);
+  return allSame && groupSizes[0] >= 5;
 }
 
 /**
@@ -185,8 +210,8 @@ function scanChunks(text: string): Chunk[] {
   for (let i = 0; i < text.length; i++) {
     const ch = text[i]!;
 
-    if (CHUNK_BREAKS.has(ch)) {
-      flush(false); // 띄어 쓴 것뿐이라 합치기 후보로 남긴다
+    if (isChunkBreak(ch)) {
+      flush(false); // 띄어 쓰거나 기호로 나눈 것뿐이라 합치기 후보로 남긴다
       continue;
     }
 
@@ -345,7 +370,7 @@ export function scanSensitive(text: string): SensitiveScan {
   while (i < chunks.length) {
     // 1) 덩어리 하나로 번호가 되는가 — 가장 흔한 경우다("010-1234-5678", "110-234-567890").
     //    단 "15000-20000원" 같은 가격 범위는 번호로 보지 않는다.
-    const single = looksLikeNumberRange(chunks[i].groupSizes)
+    const single = looksLikeNumberList(chunks[i].groupSizes)
       ? null
       : classify(chunks[i].digits, bankMentioned);
     if (single) {
@@ -362,7 +387,9 @@ export function scanSensitive(text: string): SensitiveScan {
       const group = chunks.slice(i, i + take);
       const digits = group.map((c) => c.digits).join("");
       const pieceSizes = group.map((c) => c.digits.length);
-      if (looksSplitApart(group, 4) && looksLikePhone(digits)) {
+      // 조각 길이는 넉넉히 본다("010-1234📞5678"처럼 앞이 길게 붙는 경우가 있다).
+      // 대신 합친 결과가 전화번호 형태여야 하고, 숫자를 늘어놓은 것으로 보이면 제외한다.
+      if (looksSplitApart(group, 7) && !looksLikeNumberList(pieceSizes) && looksLikePhone(digits)) {
         spans.push(toSpan(group, "phone"));
         i += take;
         matched = true;
@@ -374,7 +401,7 @@ export function scanSensitive(text: string): SensitiveScan {
         bankMentioned &&
         looksSplitApart(group, 7) &&
         group.slice(0, -1).every((c) => c.separatorAfter) &&
-        !looksLikeNumberRange(pieceSizes) &&
+        !looksLikeNumberList(pieceSizes) &&
         classify(digits, true) === "account"
       ) {
         spans.push(toSpan(group, "account"));

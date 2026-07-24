@@ -94,7 +94,7 @@ export interface ChatRoomProps {
   /**
    * WS 실시간 수신은 진행 개선(progressive enhancement)이다 — 앱이 아직 액세스 토큰을 클라이언트에
    * 보관하지 않으므로(별도 과제) 기본값은 undefined이고, 이 경우 소켓을 아예 열지 않는다.
-   * REST(이력 조회 + 전송)만으로 채팅이 온전히 동작해야 하며, 토큰이 주어질 때만 살아있는 업그레이드를 시도한다.
+   * 토큰이 없으면 아래의 주기적 확인(폴링)으로 상대 메시지를 받아 오고, 토큰이 주어질 때만 소켓으로 업그레이드한다.
    */
   accessToken?: string;
   wsUrl?: string;
@@ -299,6 +299,39 @@ export function ChatRoom({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessToken, conversationId, wsUrl]);
+
+  /**
+   * 소켓을 못 여는 동안에도 상대 메시지가 보이도록 주기적으로 확인한다.
+   *
+   * 소켓은 액세스 토큰이 있을 때만 열리는데 지금 앱은 토큰을 클라이언트에 두지 않는다.
+   * 그 상태로는 방을 열어 둔 채로는 상대 말이 영영 안 보여서, 거래 얘기 중에 답답해진다.
+   * 화면을 보고 있을 때만 확인하고, 소켓이 열려 있으면 이 경로는 쓰지 않는다.
+   */
+  useEffect(() => {
+    if (accessToken) return;
+    let stopped = false;
+
+    async function poll() {
+      if (typeof document !== "undefined" && document.hidden) return;
+      try {
+        const res = await fetch(`/api/chat/conversations/${conversationId}/messages`);
+        if (!res.ok || stopped) return;
+        const body = (await res.json()) as { messages: ChatMessageView[] };
+        if (stopped) return;
+        // 서버는 최신순으로 주므로 뒤집어서 오래된 것부터 붙인다(이미 본 건 appendMessage가 거른다).
+        for (const m of [...body.messages].reverse()) appendMessage(m);
+      } catch {
+        // 잠깐 실패해도 다음 차례에 다시 확인한다.
+      }
+    }
+
+    const timer = setInterval(() => void poll(), 5000);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accessToken, conversationId]);
 
   async function sendText(event?: React.FormEvent, skipProfanityCheck = false) {
     event?.preventDefault();
