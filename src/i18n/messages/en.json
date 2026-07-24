@@ -57,6 +57,19 @@
     "featEscrow": { "icon": "🛡️", "title": "Safe escrow", "desc": "Funds are held until you receive the item, then released. No scams." },
     "featChat": { "icon": "💬", "title": "Real-time chat", "desc": "Talk to sellers directly, with profanity filtering, blocking and reporting." }
   },
+  "meta": {
+    "title": "Dongne Market — local secondhand trading",
+    "description": "Trade safely with neighbors nearby. Neighborhood search, escrow, and real-time chat."
+  },
+  "errors": {
+    "notFoundTitle": "Page not found",
+    "notFoundBody": "The address may have changed or the page is gone.",
+    "errorTitle": "Something went wrong",
+    "errorBody": "Please try again in a moment.",
+    "retry": "Try again",
+    "goHome": "Go home",
+    "goProducts": "Browse products"
+  },
   "common": {
     "suspended": "Your account has been suspended. Please contact support.",
     "forbidden": "You don't have permission for that."

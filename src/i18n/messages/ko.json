@@ -57,6 +57,19 @@
     "featEscrow": { "icon": "🛡️", "title": "안전거래", "desc": "대금을 잠깐 보관했다가 물건을 받으면 정산해요. 사기 걱정 없이." },
     "featChat": { "icon": "💬", "title": "실시간 채팅", "desc": "판매자와 바로 대화해요. 비속어 필터·차단·신고까지." }
   },
+  "meta": {
+    "title": "동네장터 — 우리 동네 중고거래",
+    "description": "가까운 이웃과 안전하게 중고거래를 해요. 동네 기반 검색, 안전거래, 실시간 채팅."
+  },
+  "errors": {
+    "notFoundTitle": "페이지를 찾을 수 없어요",
+    "notFoundBody": "주소가 바뀌었거나 사라진 페이지예요.",
+    "errorTitle": "문제가 생겼어요",
+    "errorBody": "잠시 후 다시 시도해 주세요.",
+    "retry": "다시 시도",
+    "goHome": "홈으로",
+    "goProducts": "상품 보러가기"
+  },
   "common": {
     "suspended": "계정이 정지되었어요. 문의해 주세요",
     "forbidden": "권한이 없어요"
