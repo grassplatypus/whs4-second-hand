@@ -202,11 +202,41 @@ describe("changeNickname", () => {
     expect(auditCreate).not.toHaveBeenCalled();
   });
 
-  it("maps a concurrent P2002 nickname collision (real @prisma/adapter-pg shape) to 409 NICKNAME_TAKEN", async () => {
+  it("maps a concurrent P2002 nickname collision (legacy string constraint mock, kept defensively) to 409 NICKNAME_TAKEN", async () => {
     // 읽기 체크 통과 직후(TOCTOU) 다른 요청이 먼저 update를 커밋한 경합 케이스.
     const update = vi.fn().mockRejectedValue({
       code: "P2002",
       meta: { modelName: "User", driverAdapterError: { cause: { constraint: "User_nickname_key" } } },
+    });
+    const auditCreate = vi.fn();
+    const db = fakeDb({ userUpdate: update, authAuditLogCreate: auditCreate });
+
+    await expect(changeNickname(db, USER_ID, "이미있음", META)).rejects.toMatchObject({
+      code: "NICKNAME_TAKEN",
+      httpStatus: 409,
+    });
+    expect(auditCreate).not.toHaveBeenCalled();
+  });
+
+  it("maps a concurrent P2002 nickname collision (REAL @prisma/adapter-pg object shape { fields }) to 409 NICKNAME_TAKEN", async () => {
+    const update = vi.fn().mockRejectedValue({
+      code: "P2002",
+      meta: { modelName: "User", driverAdapterError: { cause: { constraint: { fields: ["nickname"] } } } },
+    });
+    const auditCreate = vi.fn();
+    const db = fakeDb({ userUpdate: update, authAuditLogCreate: auditCreate });
+
+    await expect(changeNickname(db, USER_ID, "이미있음", META)).rejects.toMatchObject({
+      code: "NICKNAME_TAKEN",
+      httpStatus: 409,
+    });
+    expect(auditCreate).not.toHaveBeenCalled();
+  });
+
+  it("maps a concurrent P2002 nickname collision (REAL @prisma/adapter-pg object shape { index }) to 409 NICKNAME_TAKEN", async () => {
+    const update = vi.fn().mockRejectedValue({
+      code: "P2002",
+      meta: { modelName: "User", driverAdapterError: { cause: { constraint: { index: "User_nickname_key" } } } },
     });
     const auditCreate = vi.fn();
     const db = fakeDb({ userUpdate: update, authAuditLogCreate: auditCreate });
