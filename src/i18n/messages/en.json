@@ -300,6 +300,8 @@
     "counterparty": "Other party",
     "amountLabel": "Trade amount",
     "statusLabel": "Status",
+    "roleBuyer": "Buying",
+    "roleSeller": "Selling",
     "won": " won",
     "status": {
       "REQUESTED": "Requested",

@@ -300,6 +300,8 @@
     "counterparty": "상대",
     "amountLabel": "거래 금액",
     "statusLabel": "상태",
+    "roleBuyer": "구매",
+    "roleSeller": "판매",
     "won": "원",
     "status": {
       "REQUESTED": "요청됨",
