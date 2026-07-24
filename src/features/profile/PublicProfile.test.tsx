@@ -4,6 +4,8 @@ import { NextIntlClientProvider } from "next-intl";
 import { PublicProfile, type PublicProfileView } from "./PublicProfile";
 import ko from "@/i18n/messages/ko.json";
 
+const noReviews = { summary: { counts: { GOOD: 0, OK: 0, BAD: 0 }, positiveRate: 0, total: 0 }, items: [] };
+
 const profile: PublicProfileView = {
   nickname: "풀숲여우",
   bio: "동네 중고 거래 좋아해요",
@@ -13,6 +15,7 @@ const profile: PublicProfileView = {
   createdAt: "2025-01-01T00:00:00.000Z",
   active: [],
   sold: [],
+  reviews: noReviews,
 };
 
 function renderIt(p: PublicProfileView = profile) {
@@ -53,6 +56,7 @@ describe("PublicProfile — safe subset only", () => {
       createdAt: "2025-06-15T00:00:00.000Z",
       active: [],
       sold: [],
+      reviews: noReviews,
     });
     expect(screen.getByText(ko.profile.bioEmpty)).toBeInTheDocument();
     expect(screen.getByText(ko.profile.noRegion)).toBeInTheDocument();
@@ -85,5 +89,56 @@ describe("PublicProfile — safe subset only", () => {
     expect(screen.getByText(ko.profile.noActiveListings)).toBeInTheDocument();
     expect(screen.getByText(ko.profile.soldListings)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /낡은 자전거/ })).toHaveAttribute("href", "/products/p2");
+  });
+
+  it("shows the received-reviews empty state when there are none", () => {
+    renderIt({ ...profile, reviews: noReviews });
+    expect(screen.getByText(ko.review.receivedTitle)).toBeInTheDocument();
+    expect(screen.getByText(ko.review.receivedEmpty)).toBeInTheDocument();
+  });
+
+  it("renders the received-reviews summary (counts + positive rate) and a list with reviewer nickname/avatar, rating label, comment, and date", () => {
+    renderIt({
+      ...profile,
+      reviews: {
+        summary: { counts: { GOOD: 2, OK: 1, BAD: 0 }, positiveRate: 67, total: 3 },
+        items: [
+          {
+            reviewer: { nickname: "구매왕", avatarPath: null },
+            rating: "GOOD",
+            comment: "친절하고 좋았어요",
+            createdAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+      },
+    });
+    expect(screen.getByText(ko.review.receivedTitle)).toBeInTheDocument();
+    expect(screen.getByText(`${ko.review.rating.GOOD} 2`)).toBeInTheDocument();
+    expect(screen.getByText(`${ko.review.rating.OK} 1`)).toBeInTheDocument();
+    expect(screen.getByText(`${ko.review.rating.BAD} 0`)).toBeInTheDocument();
+    expect(screen.getByText(`${ko.review.positiveRate} 67%`)).toBeInTheDocument();
+    expect(screen.getByText("구매왕")).toBeInTheDocument();
+    expect(screen.getByText("친절하고 좋았어요")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "구매왕" })).toBeInTheDocument();
+  });
+
+  it("never leaks the reviewer's raw userId or other PII in the received-reviews list", () => {
+    const { container } = renderIt({
+      ...profile,
+      reviews: {
+        summary: { counts: { GOOD: 1, OK: 0, BAD: 0 }, positiveRate: 100, total: 1 },
+        items: [
+          {
+            reviewer: { nickname: "구매왕", avatarPath: null },
+            rating: "GOOD",
+            comment: null,
+            createdAt: "2026-01-01T00:00:00.000Z",
+          },
+        ],
+      },
+    });
+    const html = container.innerHTML;
+    expect(html).not.toMatch(/@.+\..+/);
+    expect(html).not.toMatch(/\d{2,3}-\d{3,4}-\d{4}/);
   });
 });

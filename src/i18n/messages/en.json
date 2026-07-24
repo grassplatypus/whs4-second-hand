@@ -222,7 +222,9 @@
     "activeListings": "Listed for sale",
     "soldListings": "Sold",
     "noActiveListings": "Nothing listed for sale",
-    "noSoldListings": "Nothing sold yet"
+    "noSoldListings": "Nothing sold yet",
+    "purchasedListings": "Purchased",
+    "noPurchasedListings": "Nothing purchased yet"
   },
   "account": {
     "setPasswordTitle": "Set password",
@@ -402,6 +404,36 @@
     "invalidAmount": "That amount isn't valid",
     "forbidden": "You don't have permission",
     "notFound": "Trade not found",
+    "unauthenticated": "Please log in",
+    "meetupTitle": "Meetup",
+    "meetupEmpty": "No meetup set yet",
+    "meetupPlaceLabel": "Place",
+    "meetupAtLabel": "Time",
+    "meetupPlacePlaceholder": "A nearby cafe, subway station, etc.",
+    "meetupSet": "Set meetup",
+    "meetupEdit": "Edit meetup",
+    "meetupSave": "Save",
+    "meetupInvalid": "Please check the meetup details"
+  },
+  "review": {
+    "rating": {
+      "GOOD": "Good",
+      "OK": "Okay",
+      "BAD": "Bad"
+    },
+    "writeTitle": "Leave a review",
+    "commentLabel": "Review (optional)",
+    "commentPlaceholder": "How was the trade?",
+    "submit": "Leave review",
+    "receivedTitle": "Reviews received",
+    "receivedEmpty": "No reviews yet",
+    "positiveRate": "Positive rate",
+    "failed": "Please try again",
+    "alreadyReviewed": "You've already reviewed this trade",
+    "invalidInput": "Please check your review",
+    "forbidden": "You don't have permission",
+    "notFound": "Trade not found",
+    "notReleased": "You can only review completed trades",
     "unauthenticated": "Please log in"
   },
   "admin": {

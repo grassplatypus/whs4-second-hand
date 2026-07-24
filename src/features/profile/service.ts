@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { PrismaClient } from "@prisma/client";
+import type { PrismaClient, ReviewRating } from "@prisma/client";
 import { decryptPII } from "@/features/_shared/crypto";
 import { AppError } from "@/features/_shared/error";
 import { AUTH_EVENTS, logAuthEvent, type RequestMeta } from "@/features/auth/audit";
@@ -51,6 +51,12 @@ export interface PublicProfileWithProducts {
 
 /** getPublicProfileWithProducts가 필요로 하는 DB 표면 — AuthDb에 상품 조회(product)만 얹는다. */
 type ProfileProductsDb = AuthDb & Pick<PrismaClient, "product">;
+
+/** getReceivedReviews가 필요로 하는 DB 표면 — AuthDb에 거래 후기 조회(tradeReview)만 얹는다. */
+type ProfileReviewsDb = AuthDb & Pick<PrismaClient, "tradeReview">;
+
+/** getPurchasedProducts가 필요로 하는 DB 표면 — AuthDb에 에스크로 조회(escrow)만 얹는다(product는 관계 include로). */
+type ProfilePurchasesDb = AuthDb & Pick<PrismaClient, "escrow">;
 
 function notFound(): AppError {
   return new AppError("NOT_FOUND", "사용자를 찾을 수 없어요.", 404);
@@ -186,6 +192,115 @@ export async function getPublicProfileWithProducts(
   }
 
   return { profile, active, sold };
+}
+
+/** 후기 목록 항목 — 작성자는 닉네임·아바타만(이메일/전화/식별정보 없음). */
+export interface ReceivedReviewItem {
+  reviewer: { nickname: string; avatarPath: string | null };
+  rating: ReviewRating;
+  comment: string | null;
+  createdAt: Date;
+}
+
+export interface ReceivedReviewsSummary {
+  counts: Record<ReviewRating, number>;
+  /** 좋아요 비율(%, 정수 반올림) — 받은 후기가 없으면 0. */
+  positiveRate: number;
+  total: number;
+}
+
+export interface ReceivedReviews {
+  summary: ReceivedReviewsSummary;
+  items: ReceivedReviewItem[];
+}
+
+/**
+ * 공개 프로필의 "받은 후기" — 그 사람이 TARGET인 TradeReview만(내가 쓴 후기 아님).
+ * 요약(등급별 카운트·긍정 비율)은 전체를 집계하고, 목록은 최신순 최대 20건만 내려준다.
+ * 없거나 탈퇴한 계정은 프로필 조회와 동일하게 404.
+ */
+export async function getReceivedReviews(db: ProfileReviewsDb, nickname: string): Promise<ReceivedReviews> {
+  const user = await db.user.findUnique({
+    where: { nickname },
+    select: { id: true, deletedAt: true },
+  });
+  if (!user || user.deletedAt) throw notFound();
+
+  const [allRatings, items] = await Promise.all([
+    db.tradeReview.findMany({ where: { targetId: user.id }, select: { rating: true } }),
+    db.tradeReview.findMany({
+      where: { targetId: user.id },
+      select: {
+        rating: true,
+        comment: true,
+        createdAt: true,
+        author: { select: { nickname: true, avatarPath: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 20,
+    }),
+  ]);
+
+  const counts: Record<ReviewRating, number> = { GOOD: 0, OK: 0, BAD: 0 };
+  for (const r of allRatings) counts[r.rating] += 1;
+  const total = counts.GOOD + counts.OK + counts.BAD;
+  const positiveRate = total > 0 ? Math.round((counts.GOOD / total) * 100) : 0;
+
+  return {
+    summary: { counts, positiveRate, total },
+    items: items.map((r) => ({
+      reviewer: { nickname: r.author.nickname, avatarPath: r.author.avatarPath },
+      rating: r.rating,
+      comment: r.comment,
+      createdAt: r.createdAt,
+    })),
+  };
+}
+
+/** 마이페이지 "구매한 상품" 카드 — 공개 프로필 상품 카드와 같은 안전한 모양. */
+export interface PurchasedProductCard {
+  id: string;
+  title: string;
+  price: number;
+  category: string;
+  status: string;
+  thumbnail: string | null;
+  regionLabel: string | null;
+}
+
+/**
+ * 본인이 구매자이고 정산 완료(RELEASED)된 에스크로의 상품만 — 구매 이력은 철저히 본인 전용이며
+ * (공개 프로필에는 절대 노출하지 않는다), 소프트 삭제된 상품은 제외한다.
+ */
+export async function getPurchasedProducts(db: ProfilePurchasesDb, userId: string): Promise<PurchasedProductCard[]> {
+  const rows = await db.escrow.findMany({
+    where: { buyerId: userId, status: "RELEASED", product: { deletedAt: null } },
+    select: {
+      releasedAt: true,
+      product: {
+        select: {
+          id: true,
+          title: true,
+          price: true,
+          category: true,
+          status: true,
+          regionLabel: true,
+          images: { select: { path: true }, orderBy: { order: "asc" }, take: 1 },
+        },
+      },
+    },
+    orderBy: { releasedAt: "desc" },
+  });
+
+  return rows.map((r) => ({
+    id: r.product.id,
+    title: r.product.title,
+    price: r.product.price,
+    category: r.product.category,
+    status: r.product.status,
+    thumbnail: r.product.images[0]?.path ?? null,
+    regionLabel: r.product.regionLabel,
+  }));
 }
 
 export const bioSchema = z.string().trim().max(500, "소개글은 500자 이하로 적어 주세요.");

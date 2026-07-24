@@ -13,6 +13,8 @@ import {
   getEscrow,
   listEscrows,
   countActiveEscrows,
+  setMeetup,
+  leaveReview,
 } from "./service";
 import type { EscrowDb } from "./db";
 
@@ -32,6 +34,7 @@ type Delegate = Record<string, ReturnType<typeof vi.fn>>;
 function fakeDb(over: {
   escrow?: Delegate;
   product?: Delegate;
+  tradeReview?: Delegate;
   tx?: { escrow?: Delegate; escrowEvent?: Delegate; product?: Delegate };
 }) {
   const tx = {
@@ -45,11 +48,17 @@ function fakeDb(over: {
       findMany: vi.fn().mockResolvedValue([]),
       create: vi.fn().mockResolvedValue({ id: ESCROW }),
       count: vi.fn().mockResolvedValue(0),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       ...(over.escrow ?? {}),
     },
     product: {
       findFirst: vi.fn().mockResolvedValue(null),
       ...(over.product ?? {}),
+    },
+    tradeReview: {
+      findUnique: vi.fn().mockResolvedValue(null),
+      create: vi.fn().mockResolvedValue({}),
+      ...(over.tradeReview ?? {}),
     },
     user: {},
     $transaction: vi.fn(async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx)),
@@ -377,5 +386,202 @@ describe("listEscrows / countActiveEscrows", () => {
     const n = await countActiveEscrows(db, BUYER);
     expect(n).toBe(2);
     expect(count.mock.calls[0][0].where.status).toEqual({ in: ["ACCEPTED", "FUNDED", "DISPUTED"] });
+  });
+});
+
+describe("setMeetup (직거래 약속)", () => {
+  it("참여자가 ACCEPTED/FUNDED에서 장소·시각을 저장한다(조건부 updateMany)", async () => {
+    for (const status of ["ACCEPTED", "FUNDED"]) {
+      const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+      const { db } = fakeDb({
+        escrow: { findUnique: vi.fn().mockResolvedValue(core({ status })), updateMany },
+      });
+      await setMeetup(db, BUYER, ESCROW, { place: "  강남역 2번 출구  ", at: "2026-08-01T10:00:00.000Z" });
+      const call = updateMany.mock.calls[0][0];
+      expect(call.where).toMatchObject({ id: ESCROW, status: { in: ["ACCEPTED", "FUNDED"] } });
+      expect(call.data.meetupPlace).toBe("강남역 2번 출구"); // trim
+      expect(call.data.meetupAt).toBeInstanceOf(Date);
+    }
+  });
+
+  it("제3자는 403", async () => {
+    const { db } = fakeDb({ escrow: { findUnique: vi.fn().mockResolvedValue(core({ status: "ACCEPTED" })) } });
+    await expect(
+      setMeetup(db, THIRD, ESCROW, { place: "장소", at: "2026-08-01T10:00:00.000Z" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN", httpStatus: 403 });
+  });
+
+  it("REQUESTED/RELEASED 등에서는 409 — 조건부 쓰기가 0행이면 거부", async () => {
+    // 실 DB라면 where의 status:{in:[ACCEPTED,FUNDED]} 조건에 안 걸려 0행 갱신 — 목에선 그 결과를 명시한다.
+    const { db } = fakeDb({
+      escrow: {
+        findUnique: vi.fn().mockResolvedValue(core({ status: "REQUESTED" })),
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+    });
+    await expect(
+      setMeetup(db, BUYER, ESCROW, { place: "장소", at: "2026-08-01T10:00:00.000Z" }),
+    ).rejects.toMatchObject({ code: "INVALID_TRANSITION", httpStatus: 409 });
+  });
+
+  it("장소가 빈 문자열·100자 초과면 400, DB 미접근", async () => {
+    const updateMany = vi.fn();
+    const { db } = fakeDb({ escrow: { findUnique: vi.fn().mockResolvedValue(core({ status: "ACCEPTED" })), updateMany } });
+    for (const bad of ["", "   ", "a".repeat(101)]) {
+      await expect(setMeetup(db, BUYER, ESCROW, { place: bad, at: "2026-08-01T10:00:00.000Z" })).rejects.toMatchObject({
+        code: "INVALID_INPUT",
+        httpStatus: 400,
+      });
+    }
+    expect(updateMany).not.toHaveBeenCalled();
+  });
+
+  it("at이 파싱 불가능한 문자열이면 400", async () => {
+    const { db } = fakeDb({ escrow: { findUnique: vi.fn().mockResolvedValue(core({ status: "ACCEPTED" })) } });
+    await expect(setMeetup(db, BUYER, ESCROW, { place: "장소", at: "이건 날짜가 아니에요" })).rejects.toMatchObject({
+      code: "INVALID_INPUT",
+      httpStatus: 400,
+    });
+  });
+
+  it("지나치게 먼 과거(1일 이상 전)는 400", async () => {
+    const { db } = fakeDb({ escrow: { findUnique: vi.fn().mockResolvedValue(core({ status: "ACCEPTED" })) } });
+    const longAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+    await expect(setMeetup(db, BUYER, ESCROW, { place: "장소", at: longAgo })).rejects.toMatchObject({
+      code: "INVALID_INPUT",
+      httpStatus: 400,
+    });
+  });
+});
+
+describe("leaveReview (거래 후기)", () => {
+  it("RELEASED 상태에서 참여자가 후기를 남기면 target은 서버가 상대로 도출한다", async () => {
+    const create = vi.fn().mockResolvedValue({});
+    const { db } = fakeDb({
+      escrow: { findUnique: vi.fn().mockResolvedValue(core({ status: "RELEASED" })) },
+      tradeReview: { create },
+    });
+    await leaveReview(db, BUYER, ESCROW, { rating: "GOOD", comment: "  친절했어요  " });
+    expect(create.mock.calls[0][0].data).toMatchObject({
+      escrowId: ESCROW,
+      authorId: BUYER,
+      targetId: SELLER,
+      rating: "GOOD",
+      comment: "친절했어요",
+    });
+  });
+
+  it("판매자가 후기를 남기면 target은 구매자", async () => {
+    const create = vi.fn().mockResolvedValue({});
+    const { db } = fakeDb({
+      escrow: { findUnique: vi.fn().mockResolvedValue(core({ status: "RELEASED" })) },
+      tradeReview: { create },
+    });
+    await leaveReview(db, SELLER, ESCROW, { rating: "OK" });
+    expect(create.mock.calls[0][0].data).toMatchObject({ authorId: SELLER, targetId: BUYER, comment: null });
+  });
+
+  it("제3자는 403", async () => {
+    const { db } = fakeDb({ escrow: { findUnique: vi.fn().mockResolvedValue(core({ status: "RELEASED" })) } });
+    await expect(leaveReview(db, THIRD, ESCROW, { rating: "GOOD" })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+      httpStatus: 403,
+    });
+  });
+
+  it("RELEASED가 아니면(예: FUNDED) 409, DB 미접근", async () => {
+    const create = vi.fn();
+    const { db } = fakeDb({
+      escrow: { findUnique: vi.fn().mockResolvedValue(core({ status: "FUNDED" })) },
+      tradeReview: { create },
+    });
+    await expect(leaveReview(db, BUYER, ESCROW, { rating: "GOOD" })).rejects.toMatchObject({
+      code: "INVALID_TRANSITION",
+      httpStatus: 409,
+    });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it("평점이 GOOD/OK/BAD가 아니면 400", async () => {
+    const { db } = fakeDb({ escrow: { findUnique: vi.fn().mockResolvedValue(core({ status: "RELEASED" })) } });
+    await expect(leaveReview(db, BUYER, ESCROW, { rating: "AMAZING" })).rejects.toMatchObject({
+      code: "INVALID_INPUT",
+      httpStatus: 400,
+    });
+  });
+
+  it("코멘트가 500자 초과면 400", async () => {
+    const { db } = fakeDb({ escrow: { findUnique: vi.fn().mockResolvedValue(core({ status: "RELEASED" })) } });
+    await expect(
+      leaveReview(db, BUYER, ESCROW, { rating: "GOOD", comment: "a".repeat(501) }),
+    ).rejects.toMatchObject({ code: "INVALID_INPUT", httpStatus: 400 });
+  });
+
+  it("한 거래당 한 번만 — 유니크 제약 위반(P2002)은 ALREADY_REVIEWED 409로 변환한다", async () => {
+    const p2002 = { code: "P2002", meta: { target: ["escrowId", "authorId"] } };
+    const create = vi.fn().mockRejectedValue(p2002);
+    const { db } = fakeDb({
+      escrow: { findUnique: vi.fn().mockResolvedValue(core({ status: "RELEASED" })) },
+      tradeReview: { create },
+    });
+    await expect(leaveReview(db, BUYER, ESCROW, { rating: "GOOD" })).rejects.toMatchObject({
+      code: "ALREADY_REVIEWED",
+      httpStatus: 409,
+    });
+  });
+
+  it("P2002가 아닌 다른 에러는 그대로 전파한다", async () => {
+    const boom = new Error("db exploded");
+    const create = vi.fn().mockRejectedValue(boom);
+    const { db } = fakeDb({
+      escrow: { findUnique: vi.fn().mockResolvedValue(core({ status: "RELEASED" })) },
+      tradeReview: { create },
+    });
+    await expect(leaveReview(db, BUYER, ESCROW, { rating: "GOOD" })).rejects.toBe(boom);
+  });
+});
+
+describe("getEscrow — meetup·myReview 필드", () => {
+  const row = {
+    id: ESCROW,
+    status: "RELEASED",
+    amount: 10000,
+    buyerId: BUYER,
+    sellerId: SELLER,
+    lastProposerId: BUYER,
+    createdAt: new Date("2026-07-24"),
+    meetupPlace: "강남역 2번 출구",
+    meetupAt: new Date("2026-08-01T10:00:00.000Z"),
+    buyer: { nickname: "구매왕" },
+    seller: { nickname: "판매왕" },
+    product: { id: PRODUCT, title: "아이폰", status: "SOLD" },
+    events: [],
+  };
+
+  it("meetupPlace/meetupAt을 그대로 내려준다", async () => {
+    const { db } = fakeDb({ escrow: { findUnique: vi.fn().mockResolvedValue(row) } });
+    const d = await getEscrow(db, BUYER, ESCROW);
+    expect(d.meetupPlace).toBe("강남역 2번 출구");
+    expect(d.meetupAt).toEqual(new Date("2026-08-01T10:00:00.000Z"));
+  });
+
+  it("내가 남긴 후기가 없으면 myReview는 null", async () => {
+    const { db } = fakeDb({
+      escrow: { findUnique: vi.fn().mockResolvedValue(row) },
+      tradeReview: { findUnique: vi.fn().mockResolvedValue(null) },
+    });
+    const d = await getEscrow(db, BUYER, ESCROW);
+    expect(d.myReview).toBeNull();
+  });
+
+  it("내가 남긴 후기가 있으면 rating/comment를 내려준다(author=userId로 조회)", async () => {
+    const findUnique = vi.fn().mockResolvedValue({ rating: "GOOD", comment: "좋았어요" });
+    const { db } = fakeDb({
+      escrow: { findUnique: vi.fn().mockResolvedValue(row) },
+      tradeReview: { findUnique },
+    });
+    const d = await getEscrow(db, BUYER, ESCROW);
+    expect(d.myReview).toEqual({ rating: "GOOD", comment: "좋았어요" });
+    expect(findUnique.mock.calls[0][0].where).toEqual({ escrowId_authorId: { escrowId: ESCROW, authorId: BUYER } });
   });
 });

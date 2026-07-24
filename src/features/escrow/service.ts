@@ -1,9 +1,12 @@
-import type { EscrowStatus } from "@prisma/client";
+import { z } from "zod";
+import type { EscrowStatus, ReviewRating } from "@prisma/client";
 import { AppError } from "@/features/_shared/error";
+import { uniqueViolationOn } from "@/features/_shared/prisma-error";
 import { assertTransition } from "./status";
 import type { EscrowDb } from "./db";
 
 const AMOUNT_MAX = 1_000_000_000; // 10억원 — sanity 상한(오버플로우·오타 방지)
+const ONE_DAY_MS = 24 * 60 * 60 * 1000; // 약속 시각의 "지나치게 과거" 판정 기준
 
 function forbidden(): AppError {
   return new AppError("FORBIDDEN", "권한이 없어요.", 403);
@@ -224,6 +227,87 @@ export async function disputeEscrow(
   });
 }
 
+/** 직거래 약속 입력 검증 — 장소는 1~100자(trim), 시각은 파싱 가능한 날짜여야 한다. */
+const meetupSchema = z.object({
+  place: z.string().trim().min(1, "약속 장소를 입력해 주세요.").max(100, "약속 장소는 100자 이하로 적어 주세요."),
+  at: z.string().refine((v) => !Number.isNaN(new Date(v).getTime()), { message: "약속 시간이 올바르지 않아요." }),
+});
+
+/**
+ * 직거래 약속(장소·시각) 설정/수정. 참여자만(아니면 403), ACCEPTED·FUNDED 단계에서만(아니면 409).
+ * 지나치게 먼 과거(1일 이상 전)는 오타·오조작 방지를 위해 거부한다.
+ * 상태 전이가 아니므로(그냥 필드 갱신) EscrowEvent는 기록하지 않는다 — 감사 대상은 상태 전이뿐.
+ */
+export async function setMeetup(
+  db: EscrowDb,
+  actorId: string,
+  id: string,
+  input: { place: unknown; at: unknown },
+): Promise<void> {
+  const parsed = meetupSchema.safeParse(input);
+  if (!parsed.success) throw new AppError("INVALID_INPUT", "약속 정보를 확인해 주세요.", 400);
+
+  const at = new Date(parsed.data.at);
+  if (at.getTime() < Date.now() - ONE_DAY_MS) {
+    throw new AppError("INVALID_INPUT", "약속 시간이 올바르지 않아요.", 400);
+  }
+
+  await loadParticipant(db, id, actorId); // 참여자 아니면 403, 없으면 404
+
+  const n = await db.escrow.updateMany({
+    where: { id, status: { in: ["ACCEPTED", "FUNDED"] } },
+    data: { meetupPlace: parsed.data.place, meetupAt: at },
+  });
+  if (n.count !== 1) throw new AppError("INVALID_TRANSITION", "지금은 약속을 정할 수 없어요.", 409);
+}
+
+/** 거래 후기 입력 검증 — 평점은 enum, 코멘트는 선택(500자 이하, trim). */
+const reviewSchema = z.object({
+  rating: z.enum(["GOOD", "OK", "BAD"]),
+  comment: z.string().trim().max(500, "후기는 500자 이하로 적어 주세요.").optional(),
+});
+
+/**
+ * 거래 후기 작성. 참여자만(아니면 403), 정산 완료(RELEASED)만(아니면 409).
+ * target은 클라이언트 입력이 아니라 escrow의 상대방(buyer/seller)에서 서버가 도출한다.
+ * (escrowId, authorId) 유니크 제약 위반(P2002)은 "이미 후기를 남김" 409로 변환한다.
+ */
+export async function leaveReview(
+  db: EscrowDb,
+  authorId: string,
+  id: string,
+  input: { rating: unknown; comment?: unknown },
+): Promise<void> {
+  const parsed = reviewSchema.safeParse({
+    rating: input.rating,
+    comment: typeof input.comment === "string" ? input.comment : undefined,
+  });
+  if (!parsed.success) throw new AppError("INVALID_INPUT", "후기 내용을 확인해 주세요.", 400);
+
+  const e = await loadParticipant(db, id, authorId);
+  if (e.status !== "RELEASED") {
+    throw new AppError("INVALID_TRANSITION", "정산이 끝난 거래만 후기를 남길 수 있어요.", 409);
+  }
+  const targetId = e.buyerId === authorId ? e.sellerId : e.buyerId;
+
+  try {
+    await db.tradeReview.create({
+      data: {
+        escrowId: id,
+        authorId,
+        targetId,
+        rating: parsed.data.rating,
+        comment: parsed.data.comment ? parsed.data.comment : null,
+      },
+    });
+  } catch (err) {
+    if (uniqueViolationOn(err, "escrowId", "authorId")) {
+      throw new AppError("ALREADY_REVIEWED", "이미 후기를 남겼어요.", 409);
+    }
+    throw err;
+  }
+}
+
 /**
  * 분쟁 조정(관리자만 — 라우트에서 requireAdmin으로 게이트). release면 판매자 정산, refund면 구매자 반환.
  * 상품 상태도 결정에 맞춰(release→SOLD, refund→SELLING) 한 트랜잭션으로 갱신한다.
@@ -279,6 +363,11 @@ export interface EscrowDetail {
   product: { id: string; title: string; status: string };
   events: EscrowEventView[];
   createdAt: Date;
+  /** 직거래 약속 — 아직 정하지 않았으면 둘 다 null. */
+  meetupPlace: string | null;
+  meetupAt: Date | null;
+  /** 내가 이미 남긴 후기(있으면 읽기 전용으로 보여준다). RELEASED 전에는 항상 null. */
+  myReview: { rating: ReviewRating; comment: string | null } | null;
 }
 
 /** 상세 조회. 참여자만. 상대는 닉네임만 — 이메일/전화/정확좌표·상대 userId 원본은 노출하지 않는다. */
@@ -293,6 +382,8 @@ export async function getEscrow(db: EscrowDb, userId: string, id: string): Promi
       sellerId: true,
       lastProposerId: true,
       createdAt: true,
+      meetupPlace: true,
+      meetupAt: true,
       buyer: { select: { nickname: true } },
       seller: { select: { nickname: true } },
       product: { select: { id: true, title: true, status: true } },
@@ -310,6 +401,11 @@ export async function getEscrow(db: EscrowDb, userId: string, id: string): Promi
   const actorOf = (actorId: string): "me" | "other" | "admin" =>
     actorId === userId ? "me" : actorId === counterId ? "other" : "admin";
 
+  const myReview = await db.tradeReview.findUnique({
+    where: { escrowId_authorId: { escrowId: id, authorId: userId } },
+    select: { rating: true, comment: true },
+  });
+
   return {
     id: e.id,
     status: e.status,
@@ -326,6 +422,9 @@ export async function getEscrow(db: EscrowDb, userId: string, id: string): Promi
       actor: actorOf(ev.actorId),
     })),
     createdAt: e.createdAt,
+    meetupPlace: e.meetupPlace,
+    meetupAt: e.meetupAt,
+    myReview: myReview ? { rating: myReview.rating, comment: myReview.comment } : null,
   };
 }
 

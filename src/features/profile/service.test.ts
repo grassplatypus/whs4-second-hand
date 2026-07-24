@@ -1,6 +1,14 @@
 // @vitest-environment node
 import { describe, it, expect, vi } from "vitest";
-import { getMyProfile, getPublicProfile, getPublicProfileWithProducts, updateBio, bioSchema } from "./service";
+import {
+  getMyProfile,
+  getPublicProfile,
+  getPublicProfileWithProducts,
+  getReceivedReviews,
+  getPurchasedProducts,
+  updateBio,
+  bioSchema,
+} from "./service";
 import { encryptPII } from "@/features/_shared/crypto";
 import { AppError } from "@/features/_shared/error";
 
@@ -15,6 +23,8 @@ function fakeDb(overrides: {
   authIdentityFindMany?: ReturnType<typeof vi.fn>;
   authAuditLogCreate?: ReturnType<typeof vi.fn>;
   productFindMany?: ReturnType<typeof vi.fn>;
+  tradeReviewFindMany?: ReturnType<typeof vi.fn>;
+  escrowFindMany?: ReturnType<typeof vi.fn>;
 }) {
   return {
     user: {
@@ -27,6 +37,12 @@ function fakeDb(overrides: {
     authAuditLog: { create: overrides.authAuditLogCreate ?? vi.fn().mockResolvedValue({}) },
     product: {
       findMany: overrides.productFindMany ?? vi.fn().mockResolvedValue([]),
+    },
+    tradeReview: {
+      findMany: overrides.tradeReviewFindMany ?? vi.fn().mockResolvedValue([]),
+    },
+    escrow: {
+      findMany: overrides.escrowFindMany ?? vi.fn().mockResolvedValue([]),
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any;
@@ -180,6 +196,156 @@ describe("getPublicProfileWithProducts", () => {
       userFindUnique: vi.fn().mockResolvedValue(fullUserRow({ deletedAt: new Date() })),
     });
     await expect(getPublicProfileWithProducts(db, "풀숲")).rejects.toMatchObject({ code: "NOT_FOUND", httpStatus: 404 });
+  });
+});
+
+/** tradeReview.findMany은 두 번 불린다(전체 rating 집계용, 최신 20건 목록용) — select 모양으로 분기한다. */
+function tradeReviewFindManyMock(allRatings: { rating: string }[], items: Record<string, unknown>[]) {
+  return vi.fn(async (args: { select?: { author?: unknown } }) => {
+    if (args?.select?.author) return items;
+    return allRatings;
+  });
+}
+
+describe("getReceivedReviews", () => {
+  it("등급별 카운트·긍정 비율(좋아요 비율)을 집계하고, 최신순 후기 목록을 내려준다", async () => {
+    const userFindUnique = vi.fn().mockResolvedValue(fullUserRow());
+    const tradeReviewFindMany = tradeReviewFindManyMock(
+      [{ rating: "GOOD" }, { rating: "GOOD" }, { rating: "OK" }, { rating: "BAD" }],
+      [
+        {
+          rating: "GOOD",
+          comment: "친절해요",
+          createdAt: new Date("2026-02-01T00:00:00Z"),
+          author: { nickname: "구매왕", avatarPath: null },
+        },
+      ],
+    );
+    const db = fakeDb({ userFindUnique, tradeReviewFindMany });
+
+    const result = await getReceivedReviews(db, "풀숲");
+
+    expect(result.summary).toEqual({ counts: { GOOD: 2, OK: 1, BAD: 1 }, positiveRate: 50, total: 4 });
+    expect(result.items).toEqual([
+      {
+        reviewer: { nickname: "구매왕", avatarPath: null },
+        rating: "GOOD",
+        comment: "친절해요",
+        createdAt: new Date("2026-02-01T00:00:00Z"),
+      },
+    ]);
+  });
+
+  it("후기가 없으면 카운트 0, 긍정 비율 0", async () => {
+    const userFindUnique = vi.fn().mockResolvedValue(fullUserRow());
+    const db = fakeDb({ userFindUnique, tradeReviewFindMany: tradeReviewFindManyMock([], []) });
+
+    const result = await getReceivedReviews(db, "풀숲");
+    expect(result.summary).toEqual({ counts: { GOOD: 0, OK: 0, BAD: 0 }, positiveRate: 0, total: 0 });
+    expect(result.items).toEqual([]);
+  });
+
+  it("작성자는 닉네임·아바타만 노출한다 — 이메일/전화/좌표/식별정보 없음", async () => {
+    const userFindUnique = vi.fn().mockResolvedValue(fullUserRow());
+    const tradeReviewFindMany = tradeReviewFindManyMock(
+      [{ rating: "GOOD" }],
+      [
+        {
+          rating: "GOOD",
+          comment: null,
+          createdAt: new Date("2026-02-01T00:00:00Z"),
+          author: { nickname: "구매왕", avatarPath: "avatars/a.png" },
+        },
+      ],
+    );
+    const db = fakeDb({ userFindUnique, tradeReviewFindMany });
+
+    const result = await getReceivedReviews(db, "풀숲");
+    const json = JSON.stringify(result);
+    expect(json).not.toContain(EMAIL_PLAINTEXT);
+    expect(json).not.toContain(PHONE_PLAINTEXT);
+    expect(json).not.toContain("authorId");
+    expect(json).not.toContain("targetId");
+  });
+
+  it("존재하지 않거나 탈퇴한 계정은 404(프로필 조회와 동일)", async () => {
+    const db = fakeDb({ userFindUnique: vi.fn().mockResolvedValue(null) });
+    await expect(getReceivedReviews(db, "없는닉네임")).rejects.toMatchObject({ code: "NOT_FOUND", httpStatus: 404 });
+
+    const dbDeleted = fakeDb({ userFindUnique: vi.fn().mockResolvedValue(fullUserRow({ deletedAt: new Date() })) });
+    await expect(getReceivedReviews(dbDeleted, "풀숲")).rejects.toMatchObject({ code: "NOT_FOUND", httpStatus: 404 });
+  });
+
+  it("목록 조회는 대상(targetId)으로 필터하고 최신순 최대 20건만 요청한다", async () => {
+    const userFindUnique = vi.fn().mockResolvedValue(fullUserRow());
+    const tradeReviewFindMany = tradeReviewFindManyMock([], []);
+    const db = fakeDb({ userFindUnique, tradeReviewFindMany });
+
+    await getReceivedReviews(db, "풀숲");
+
+    const itemsCall = tradeReviewFindMany.mock.calls.find((c) => (c[0] as { select?: { author?: unknown } })?.select?.author);
+    expect(itemsCall?.[0]).toMatchObject({ where: { targetId: USER_ID }, orderBy: { createdAt: "desc" }, take: 20 });
+  });
+});
+
+describe("getPurchasedProducts", () => {
+  function escrowRow(overrides: Record<string, unknown> = {}) {
+    return {
+      releasedAt: new Date("2026-03-01T00:00:00Z"),
+      product: {
+        id: "p1",
+        title: "낡은 자전거",
+        price: 30000,
+        category: "SPORTS",
+        status: "SOLD",
+        regionLabel: "서울특별시 강남구",
+        images: [{ path: "img/bike.png" }],
+      },
+      ...overrides,
+    };
+  }
+
+  it("내가 구매자이고 RELEASED된 에스크로의 상품만 최신순으로 반환한다", async () => {
+    const escrowFindMany = vi.fn().mockResolvedValue([escrowRow()]);
+    const db = fakeDb({ escrowFindMany });
+
+    const result = await getPurchasedProducts(db, USER_ID);
+
+    expect(result).toEqual([
+      {
+        id: "p1",
+        title: "낡은 자전거",
+        price: 30000,
+        category: "SPORTS",
+        status: "SOLD",
+        thumbnail: "img/bike.png",
+        regionLabel: "서울특별시 강남구",
+      },
+    ]);
+    const call = escrowFindMany.mock.calls[0][0];
+    expect(call.where).toMatchObject({ buyerId: USER_ID, status: "RELEASED", product: { deletedAt: null } });
+    expect(call.orderBy).toEqual({ releasedAt: "desc" });
+  });
+
+  it("이미지가 없으면 thumbnail은 null", async () => {
+    const escrowFindMany = vi.fn().mockResolvedValue([escrowRow({ product: { ...escrowRow().product, images: [] } })]);
+    const db = fakeDb({ escrowFindMany });
+
+    const result = await getPurchasedProducts(db, USER_ID);
+    expect(result[0].thumbnail).toBeNull();
+  });
+
+  it("아무것도 구매하지 않았으면 빈 배열", async () => {
+    const db = fakeDb({ escrowFindMany: vi.fn().mockResolvedValue([]) });
+    const result = await getPurchasedProducts(db, USER_ID);
+    expect(result).toEqual([]);
+  });
+
+  it("소프트 삭제된 상품은 where 조건에서 제외 요청한다(product.deletedAt: null)", async () => {
+    const escrowFindMany = vi.fn().mockResolvedValue([]);
+    const db = fakeDb({ escrowFindMany });
+    await getPurchasedProducts(db, USER_ID);
+    expect(escrowFindMany.mock.calls[0][0].where.product).toEqual({ deletedAt: null });
   });
 });
 

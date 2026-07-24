@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import { EscrowRoom, type EscrowDetailView } from "./EscrowRoom";
@@ -28,6 +28,9 @@ function detail(overrides: Partial<EscrowDetailView> = {}): EscrowDetailView {
       { status: "FUNDED", amount: 10000, note: null, at: "2026-01-01T00:02:00.000Z", actor: "me" },
     ],
     createdAt: "2026-01-01T00:00:00.000Z",
+    meetupPlace: null,
+    meetupAt: null,
+    myReview: null,
     ...overrides,
   };
 }
@@ -176,5 +179,147 @@ describe("EscrowRoom", () => {
     renderIt();
 
     expect(await screen.findByRole("alert")).toHaveTextContent(ko.escrow.forbidden);
+  });
+});
+
+describe("EscrowRoom — meetup (직거래 약속)", () => {
+  it("hides the meetup section while REQUESTED or CANCELLED", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: async () => detail({ status: "REQUESTED", myTurn: true }) }),
+    );
+    renderIt();
+
+    await screen.findByRole("button", { name: ko.escrow.accept });
+    expect(screen.queryByText(ko.escrow.meetupTitle)).not.toBeInTheDocument();
+  });
+
+  it("ACCEPTED with no meetup set: shows the empty message and a set-meetup button that opens the form and posts on submit", async () => {
+    const fetchMock = routedFetch({
+      "GET /api/escrow/e1": () => ({ ok: true, body: detail({ status: "ACCEPTED" }) }),
+      "POST /api/escrow/e1/meetup": () => ({ ok: true, body: { ok: true } }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderIt();
+
+    expect(await screen.findByText(ko.escrow.meetupEmpty)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: ko.escrow.meetupSet }));
+
+    await user.type(screen.getByLabelText(ko.escrow.meetupPlaceLabel), "강남역 2번 출구");
+    fireEvent.change(screen.getByLabelText(ko.escrow.meetupAtLabel), { target: { value: "2026-08-01T10:00" } });
+    await user.click(screen.getByRole("button", { name: ko.escrow.meetupSave }));
+
+    await waitFor(() => {
+      const postCall = fetchMock.mock.calls.find(
+        ([u, init]) => String(u).includes("/meetup") && (init as RequestInit | undefined)?.method === "POST",
+      );
+      expect(postCall).toBeTruthy();
+      const body = JSON.parse((postCall![1] as RequestInit).body as string);
+      expect(body.place).toBe("강남역 2번 출구");
+      expect(typeof body.at).toBe("string");
+    });
+  });
+
+  it("shows an existing appointment read-only, with an edit button while ACCEPTED/FUNDED", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => detail({ status: "FUNDED", meetupPlace: "강남역 2번 출구", meetupAt: "2026-08-01T01:00:00.000Z" }),
+      }),
+    );
+    renderIt();
+
+    expect(await screen.findByText("강남역 2번 출구")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: ko.escrow.meetupEdit })).toBeInTheDocument();
+  });
+
+  it("maps an invalid meetup submission to the meetup-specific message, not the amount one", async () => {
+    const fetchMock = routedFetch({
+      "GET /api/escrow/e1": () => ({ ok: true, body: detail({ status: "ACCEPTED" }) }),
+      "POST /api/escrow/e1/meetup": () => ({ ok: false, status: 400, body: { code: "INVALID_INPUT" } }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderIt();
+
+    await user.click(await screen.findByRole("button", { name: ko.escrow.meetupSet }));
+    await user.type(screen.getByLabelText(ko.escrow.meetupPlaceLabel), "장소");
+    fireEvent.change(screen.getByLabelText(ko.escrow.meetupAtLabel), { target: { value: "2026-08-01T10:00" } });
+    await user.click(screen.getByRole("button", { name: ko.escrow.meetupSave }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(ko.escrow.meetupInvalid);
+  });
+});
+
+describe("EscrowRoom — trade review (RELEASED only, one per author)", () => {
+  it("RELEASED with no review yet: shows the write form; selecting a rating and submitting posts rating + trimmed comment", async () => {
+    const fetchMock = routedFetch({
+      "GET /api/escrow/e1": () => ({ ok: true, body: detail({ status: "RELEASED", myReview: null }) }),
+      "POST /api/escrow/e1/review": () => ({ ok: true, body: { ok: true } }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderIt();
+
+    expect(await screen.findByRole("heading", { name: ko.review.writeTitle })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: ko.review.submit })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: ko.review.rating.GOOD }));
+    await user.type(screen.getByLabelText(ko.review.commentLabel), "좋은 거래였어요");
+    await user.click(screen.getByRole("button", { name: ko.review.submit }));
+
+    await waitFor(() => {
+      const postCall = fetchMock.mock.calls.find(
+        ([u, init]) => String(u).includes("/review") && (init as RequestInit | undefined)?.method === "POST",
+      );
+      expect(postCall).toBeTruthy();
+      const body = JSON.parse((postCall![1] as RequestInit).body as string);
+      expect(body).toEqual({ rating: "GOOD", comment: "좋은 거래였어요" });
+    });
+  });
+
+  it("RELEASED with an existing review: shows it read-only, not the write form", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => detail({ status: "RELEASED", myReview: { rating: "GOOD", comment: "좋았어요" } }),
+      }),
+    );
+    renderIt();
+
+    expect(await screen.findByText(ko.review.rating.GOOD)).toBeInTheDocument();
+    expect(screen.getByText("좋았어요")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: ko.review.submit })).not.toBeInTheDocument();
+  });
+
+  it("does not show the review section before RELEASED", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => detail({ status: "FUNDED" }) }));
+    renderIt();
+
+    await screen.findByText(ko.escrow.statusLabel);
+    expect(screen.queryByText(ko.review.writeTitle)).not.toBeInTheDocument();
+  });
+
+  it("maps ALREADY_REVIEWED to the review catalog message (not the escrow one), never the raw server text", async () => {
+    const fetchMock = routedFetch({
+      "GET /api/escrow/e1": () => ({ ok: true, body: detail({ status: "RELEASED", myReview: null }) }),
+      "POST /api/escrow/e1/review": () => ({
+        ok: false,
+        status: 409,
+        body: { code: "ALREADY_REVIEWED", message: "leaky server text" },
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderIt();
+
+    await user.click(await screen.findByRole("button", { name: ko.review.rating.OK }));
+    await user.click(screen.getByRole("button", { name: ko.review.submit }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(ko.review.alreadyReviewed);
+    expect(screen.queryByText("leaky server text")).not.toBeInTheDocument();
   });
 });
