@@ -92,7 +92,7 @@ export function NavBar({ user }: { user: SessionUser | null }) {
                 {t("login")}
               </Link>
               <Link
-                href="/register"
+                href="/signup"
                 className="rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700"
               >
                 {t("register")}
@@ -148,7 +148,7 @@ export function NavBar({ user }: { user: SessionUser | null }) {
                 <Link href="/login" onClick={() => setOpen(false)} className="rounded-md px-3 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
                   {t("login")}
                 </Link>
-                <Link href="/register" onClick={() => setOpen(false)} className="rounded-md px-3 py-2 text-sm font-semibold text-emerald-700 dark:text-emerald-400">
+                <Link href="/signup" onClick={() => setOpen(false)} className="rounded-md px-3 py-2 text-sm font-semibold text-emerald-700 dark:text-emerald-400">
                   {t("register")}
                 </Link>
               </>

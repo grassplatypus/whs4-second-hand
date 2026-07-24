@@ -38,7 +38,7 @@ export default async function Home() {
               </Link>
             ) : (
               <Link
-                href="/register"
+                href="/signup"
                 className="rounded-lg border border-zinc-300 bg-white px-5 py-2.5 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
               >
                 {t("ctaStart")}
