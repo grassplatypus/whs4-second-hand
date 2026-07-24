@@ -223,3 +223,34 @@ test("cross-user step-up 거부: A의 step_up 쿠키로는 B의 민감 작업을
     await ctxB.dispose();
   }
 });
+
+test("탈퇴 가드(#7): 판매중 상품이 있으면 WITHDRAW_BLOCKED 409, 상품 삭제 후엔 탈퇴 성공", async ({ context }) => {
+  const id = unique();
+  await registerAndLogin(context.request, id);
+  // 판매자 좌표 설정 후 상품 등록 → 판매중(SELLING) 상태의 진행 거래가 생긴다.
+  const loc = await context.request.post("/api/auth/location", {
+    data: { sido: "서울특별시", sigungu: "강남구", dong: "역삼동" },
+  });
+  expect(loc.ok()).toBeTruthy();
+  const create = await context.request.post("/api/products", {
+    data: { title: "탈퇴가드 테스트 상품", description: "설명", price: 10000, category: "ETC" },
+  });
+  expect(create.status()).toBe(201);
+  const { id: productId } = await create.json();
+
+  // step-up 재인증
+  const stepUp = await context.request.post("/api/auth/step-up", {
+    data: { method: "password", password: PASSWORD },
+  });
+  expect(stepUp.ok()).toBeTruthy();
+
+  // 판매중 상품이 있어 탈퇴가 막힌다(409 WITHDRAW_BLOCKED)
+  const blocked = await context.request.post("/api/auth/withdraw");
+  expect(blocked.status()).toBe(409);
+  expect((await blocked.json()).code).toBe("WITHDRAW_BLOCKED");
+
+  // 상품 삭제(soft) 후엔 진행 거래가 없어 탈퇴 성공
+  expect((await context.request.delete(`/api/products/${productId}`)).ok()).toBeTruthy();
+  const ok = await context.request.post("/api/auth/withdraw");
+  expect(ok.ok()).toBeTruthy();
+});

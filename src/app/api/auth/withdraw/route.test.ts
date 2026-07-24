@@ -66,7 +66,8 @@ describe("POST /api/auth/withdraw — step-up gating", () => {
     const res = await POST(req({ [REFRESH_COOKIE]: "tok", [STEPUP_COOKIE]: sameUsersStepUp }));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
-    expect(withdraw).toHaveBeenCalledWith(expect.anything(), "u1", expect.anything());
+    // 4번째 인자로 실제 탈퇴 가드(진행 거래/판매/최근판매 합성)를 넘긴다.
+    expect(withdraw).toHaveBeenCalledWith(expect.anything(), "u1", expect.anything(), expect.anything());
     const setCookie = res.headers.get("set-cookie") ?? "";
     expect(setCookie).toMatch(/refresh_token=;/);
     expect(setCookie).toMatch(/Max-Age=0/);
