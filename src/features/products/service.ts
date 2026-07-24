@@ -7,6 +7,14 @@ import type { ProductDb } from "./db";
 
 const CATEGORIES = ["DIGITAL", "APPLIANCE", "FURNITURE", "CLOTHING", "BOOK", "BEAUTY", "SPORTS", "ETC"] as const;
 
+/**
+ * saveProductImage(images.ts)가 실제로 만들어내는 경로 모양과 정확히 일치해야 한다 —
+ * `products/<서버 생성 uuid>.webp`. 클라이언트가 임의 문자열(다른 유저 경로, 경로 트래버설,
+ * 외부 URL 등)을 이미지로 등록하지 못하게 막는 핵심 검증이라 느슨하게 풀면 안 된다.
+ */
+const PRODUCT_IMAGE_PATH_RE = /^products\/[0-9a-f-]{36}\.webp$/;
+const MAX_IMAGES = 10;
+
 function invalidInput(): AppError {
   return new AppError("INVALID_INPUT", "입력한 내용을 다시 확인해 주세요.", 400);
 }
@@ -17,12 +25,18 @@ export const productInputSchema = z.object({
   price: z.number().int("가격은 정수여야 해요.").min(0, "가격은 0원 이상이어야 해요."),
   category: z.enum(CATEGORIES),
   directPlace: z.string().trim().max(100).optional(),
-  images: z.array(z.string()).optional(),
+  images: z
+    .array(z.string().regex(PRODUCT_IMAGE_PATH_RE, "이미지 형식이 올바르지 않아요."))
+    .max(MAX_IMAGES, `이미지는 최대 ${MAX_IMAGES}장까지 올릴 수 있어요.`)
+    .optional(),
 });
 export type ProductInput = z.infer<typeof productInputSchema>;
 
-/** 수정용 부분 스키마 — 이미지는 별도 업로드 플로우(후속 태스크) 소관이라 여기서 다루지 않는다. */
-export const productUpdateSchema = productInputSchema.omit({ images: true }).partial();
+/**
+ * 수정용 부분 스키마. 이미지도 등록과 동일한 검증(경로 형식·최대 10장)으로 받는다 —
+ * 배열이 오면 상품의 이미지 전체를 그 배열로 교체한다(부분 patch가 아니라 전체 치환).
+ */
+export const productUpdateSchema = productInputSchema.partial();
 export type ProductUpdateInput = z.infer<typeof productUpdateSchema>;
 
 /**
@@ -144,7 +158,10 @@ export async function getProduct(db: ProductDb, id: string): Promise<ProductDeta
   };
 }
 
-/** 상품 수정. 소유권을 먼저 확인한 뒤 부분 입력을 검증한다. 제목이 바뀌면 초성도 재계산한다. */
+/**
+ * 상품 수정. 소유권을 먼저 확인한 뒤 부분 입력을 검증한다. 제목이 바뀌면 초성도 재계산한다.
+ * images가 입력에 포함되면 기존 이미지 전체를 지우고 새 배열로 다시 순서대로 만든다(전체 치환).
+ */
 export async function updateProduct(
   db: ProductDb,
   sellerId: string,
@@ -165,12 +182,83 @@ export async function updateProduct(
   if (input.price !== undefined) data.price = input.price;
   if (input.category !== undefined) data.category = input.category;
   if (input.directPlace !== undefined) data.directPlace = input.directPlace;
+  if (input.images !== undefined) {
+    data.images = {
+      deleteMany: {},
+      create: input.images.map((path, order) => ({ path, order })),
+    };
+  }
 
   await db.product.update({ where: { id }, data });
 }
 
-/** 상품 삭제(soft delete). 소유권 확인 후 deletedAt만 세팅한다. */
+/** 상품 삭제(soft delete) — 공개 노출에서 "숨기기"와 같은 동작이다. 소유권 확인 후 deletedAt만 세팅한다. */
 export async function deleteProduct(db: ProductDb, sellerId: string, id: string): Promise<void> {
   await assertOwner(db, id, sellerId);
   await db.product.update({ where: { id }, data: { deletedAt: new Date() } });
+}
+
+/**
+ * 소유권만 확인한다(deleteProduct/updateProduct용 assertOwner와 달리 숨김 상태도 통과시킨다) —
+ * 복원 대상은 정의상 이미 deletedAt이 세팅된 상품이라, assertOwner를 그대로 쓸 수 없다.
+ */
+async function assertOwnerAnyState(db: ProductDb, id: string, userId: string): Promise<void> {
+  const product = await db.product.findUnique({ where: { id }, select: { sellerId: true } });
+  if (!product) throw notFound();
+  if (product.sellerId !== userId) throw forbidden();
+}
+
+/** 숨긴(soft-deleted) 상품을 되돌린다 — deletedAt을 지워 다시 공개 목록/상세에 나타나게 한다. */
+export async function restoreProduct(db: ProductDb, sellerId: string, id: string): Promise<void> {
+  await assertOwnerAnyState(db, id, sellerId);
+  await db.product.update({ where: { id }, data: { deletedAt: null } });
+}
+
+/** 판매자 본인의 전체 상품(숨김 포함) 요약 목록 — "숨긴 상품에 다시 접근하는 방법"을 위한 조회. */
+export interface OwnedProductSummary {
+  id: string;
+  title: string;
+  price: number;
+  category: string;
+  status: string;
+  thumbnail: string | null;
+  isHidden: boolean;
+  createdAt: Date;
+}
+
+export async function listOwnProducts(db: ProductDb, sellerId: string): Promise<OwnedProductSummary[]> {
+  const rows = await db.product.findMany({
+    where: { sellerId },
+    select: {
+      id: true,
+      title: true,
+      price: true,
+      category: true,
+      status: true,
+      deletedAt: true,
+      createdAt: true,
+      images: { select: { path: true }, orderBy: { order: "asc" }, take: 1 },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return rows.map((row: {
+    id: string;
+    title: string;
+    price: number;
+    category: string;
+    status: string;
+    deletedAt: Date | null;
+    createdAt: Date;
+    images: { path: string }[];
+  }) => ({
+    id: row.id,
+    title: row.title,
+    price: row.price,
+    category: row.category,
+    status: row.status,
+    thumbnail: row.images[0]?.path ?? null,
+    isHidden: row.deletedAt !== null,
+    createdAt: row.createdAt,
+  }));
 }

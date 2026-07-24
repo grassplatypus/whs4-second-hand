@@ -5,6 +5,7 @@ import { prisma } from "@/features/_shared/prisma";
 import { AppError } from "@/features/_shared/error";
 import { currentUserFromRefresh } from "@/features/auth/session";
 import { REFRESH_COOKIE } from "@/features/auth/cookies";
+import { PageContainer } from "@/features/shell/ui";
 import { getProduct } from "@/features/products/service";
 import { ProductForm } from "@/features/products/ProductForm";
 
@@ -28,16 +29,16 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
   const row = await prisma.product.findUnique({ where: { id }, select: { sellerId: true } });
   if (row?.sellerId !== current.userId) {
     return (
-      <main className="flex flex-1 flex-col items-center gap-4 py-12">
+      <PageContainer className="items-center">
         <p role="alert" className="text-sm text-red-600">
           {t("forbidden")}
         </p>
-      </main>
+      </PageContainer>
     );
   }
 
   return (
-    <main className="flex flex-1 flex-col items-center gap-6 py-12">
+    <PageContainer className="items-center">
       <ProductForm
         mode="edit"
         productId={product.id}
@@ -50,6 +51,6 @@ export default async function EditProductPage({ params }: { params: Promise<{ id
           images: product.images,
         }}
       />
-    </main>
+    </PageContainer>
   );
 }

@@ -25,9 +25,21 @@ const ERROR_KEYS: Record<string, string> = {
 const textareaClass =
   "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 outline-none transition-colors placeholder:text-zinc-400 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100";
 
+/** 가격 입력에서 콤마·공백 등 숫자가 아닌 문자를 전부 제거한다 — 붙여넣기도 이 한 경로를 탄다. */
+function digitsOnly(value: string): string {
+  return value.replace(/[^0-9]/g, "");
+}
+
+/** 순수 숫자 문자열을 화면 표시용 3자리 콤마 형식으로 바꾼다(내부 상태는 항상 순수 숫자로 유지). */
+function formatPriceDisplay(digits: string): string {
+  if (!digits) return "";
+  return Number(digits).toLocaleString("en-US");
+}
+
 /**
- * 등록/수정 겸용 폼. 이미지 업로드는 등록(create) 모드에서만 연다 — 서버의 수정 스키마
- * (productUpdateSchema)가 images를 애초에 받지 않기 때문(후속 태스크 소관, service.ts 주석 참고).
+ * 등록/수정 겸용 폼. 이미지 추가/삭제는 등록·수정 모두에서 연다 — 서버의 수정 스키마
+ * (productUpdateSchema)도 등록과 동일한 검증으로 images를 받아, 배열이 오면 상품 이미지
+ * 전체를 그 배열로 교체한다(service.ts 참고).
  *
  * hasLocation: 등록 페이지가 서버에서 미리 조회해 내려준다 — 판매자의 동네가 아직 없으면
  * 폼을 채우기 전부터 배너로 안내한다(실제 차단은 언제나 서버의 NO_LOCATION 응답이 최종 판단).
@@ -135,7 +147,7 @@ export function ProductForm({
         description,
         directPlace: directPlace.trim() ? directPlace : undefined,
       };
-      const payload = mode === "create" ? { ...common, images } : common;
+      const payload = { ...common, images };
 
       const res = await fetch(mode === "create" ? "/api/products" : `/api/products/${productId}`, {
         method: mode === "create" ? "POST" : "PATCH",
@@ -187,7 +199,12 @@ export function ProductForm({
           </Field>
 
           <Field label={t("price")}>
-            <Input type="number" min={0} value={price} onChange={(e) => setPrice(e.target.value)} />
+            <Input
+              type="text"
+              inputMode="numeric"
+              value={formatPriceDisplay(price)}
+              onChange={(e) => setPrice(digitsOnly(e.target.value))}
+            />
           </Field>
 
           <Field label={t("categoryLabel")}>
@@ -213,32 +230,39 @@ export function ProductForm({
             <Input value={directPlace} onChange={(e) => setDirectPlace(e.target.value)} />
           </Field>
 
-          {mode === "create" && (
-            <div className="flex flex-col gap-2">
-              <Field label={t("addImage")}>
-                <input
-                  type="file"
-                  accept="image/*"
-                  onChange={(e) => void onFileChange(e)}
-                  disabled={uploading}
-                  className="text-sm text-zinc-600 dark:text-zinc-300"
-                />
-              </Field>
-              {images.length > 0 && (
-                <ul className="flex flex-wrap gap-2">
-                  {images.map((path) => (
-                    <li key={path} className="flex flex-col items-center gap-1">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={`/api/media/${path}`} alt="" className="h-16 w-16 rounded-lg object-cover" />
-                      <button type="button" onClick={() => removeImage(path)} className="text-xs text-red-600">
-                        {t("deleteButton")}
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
+          <div className="flex flex-col gap-2">
+            <Field label={t("addImage")}>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => void onFileChange(e)}
+                disabled={uploading}
+                className="text-sm text-zinc-600 dark:text-zinc-300"
+              />
+            </Field>
+            {images.length > 0 && (
+              <ul className="flex flex-wrap gap-2">
+                {images.map((path, i) => (
+                  <li key={path} className="flex flex-col items-center gap-1">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={`/api/media/${path}`}
+                      alt={t("imagePreviewAlt", { index: i + 1 })}
+                      className="h-16 w-16 rounded-lg object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeImage(path)}
+                      aria-label={t("removeImageAria", { index: i + 1 })}
+                      className="text-xs text-red-600"
+                    >
+                      {t("deleteButton")}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
 
           <div className="flex gap-2 pt-2">
             <Button type="submit" disabled={submitting || uploading}>

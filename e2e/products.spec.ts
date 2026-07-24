@@ -217,6 +217,80 @@ test("검색어 SQL 인젝션 페이로드는 에러 없이 무해하게 처리�
   expect(followUp.ok()).toBeTruthy();
 });
 
+test("숨기기(DELETE)→공개 검색/상세에서 사라짐, 복원(POST restore)→다시 나타남, 남의 상품 복원은 403", async ({
+  browser,
+}) => {
+  const ctxA = await browser.newContext({ locale: "ko-KR" });
+  const idA = unique();
+  await registerAndLogin(ctxA.request, idA);
+  await setLocation(ctxA.request, "서울특별시", "종로구", "종로1가");
+
+  const create = await ctxA.request.post("/api/products", {
+    data: { title: "숨기기 테스트 상품", description: "설명", price: 1000, category: "ETC" },
+  });
+  const { id: productId } = await create.json();
+
+  // 숨기기 전: 공개 상세·검색에서 보인다.
+  expect((await ctxA.request.get(`/api/products/${productId}`)).ok()).toBeTruthy();
+  const before = await (await ctxA.request.get(`/api/products?limit=50`)).json();
+  expect(before.items.some((it: { id: string }) => it.id === productId)).toBe(true);
+
+  // 숨기기(soft delete) — owner만 가능, 공개 조회/검색에서 사라진다.
+  const hide = await ctxA.request.delete(`/api/products/${productId}`);
+  expect(hide.status()).toBe(200);
+  expect((await ctxA.request.get(`/api/products/${productId}`)).status()).toBe(404);
+  const afterHide = await (await ctxA.request.get(`/api/products?limit=50`)).json();
+  expect(afterHide.items.some((it: { id: string }) => it.id === productId)).toBe(false);
+
+  // 다른 유저는 복원할 수 없다 — 403.
+  const ctxB = await browser.newContext({ locale: "ko-KR" });
+  const idB = unique();
+  await registerAndLogin(ctxB.request, idB);
+  const restoreByOther = await ctxB.request.post(`/api/products/${productId}/restore`);
+  expect(restoreByOther.status()).toBe(403);
+  expect((await restoreByOther.json()).code).toBe("FORBIDDEN");
+
+  // 소유자가 복원하면 공개 조회/검색에 다시 나타난다.
+  const restore = await ctxA.request.post(`/api/products/${productId}/restore`);
+  expect(restore.status()).toBe(200);
+  expect((await ctxA.request.get(`/api/products/${productId}`)).ok()).toBeTruthy();
+  const afterRestore = await (await ctxA.request.get(`/api/products?limit=50`)).json();
+  expect(afterRestore.items.some((it: { id: string }) => it.id === productId)).toBe(true);
+
+  await ctxA.close();
+  await ctxB.close();
+});
+
+test("PATCH으로 이미지 배열을 교체할 수 있다(수정 시 이미지 관리) — 잘못된 경로 형식은 400", async ({ context }) => {
+  const id = unique();
+  await registerAndLogin(context.request, id);
+  await setLocation(context.request, "인천광역시", "연수구", "송도동");
+
+  const create = await context.request.post("/api/products", {
+    data: { title: "이미지 수정 테스트", description: "설명", price: 1000, category: "ETC" },
+  });
+  const { id: productId } = await create.json();
+
+  const upload = await context.request.post("/api/products/images", {
+    multipart: {
+      file: { name: "photo.png", mimeType: "image/png", buffer: Buffer.from(TINY_PNG_BASE64, "base64") },
+    },
+  });
+  const { path } = await upload.json();
+
+  const patch = await context.request.patch(`/api/products/${productId}`, { data: { images: [path] } });
+  expect(patch.status()).toBe(200);
+
+  const detail = await (await context.request.get(`/api/products/${productId}`)).json();
+  expect(detail.images).toEqual([{ path, order: 0 }]);
+
+  const badPatch = await context.request.patch(`/api/products/${productId}`, {
+    data: { images: ["not/a/valid/path.png"] },
+  });
+  expect(badPatch.status()).toBe(400);
+  expect((await badPatch.json()).code).toBe("INVALID_INPUT");
+});
+
 test("이미지 업로드(멀티파트) → 201 {path}, GET /api/media/{path}가 실제로 서빙한다", async ({ context }) => {
   const id = unique();
   await registerAndLogin(context.request, id);

@@ -316,7 +316,18 @@
     "emptyCta": "상품 등록하러 가기",
     "backToList": "목록으로",
     "cancelButton": "취소",
-    "unsavedChangesConfirm": "작성 중인 내용이 있어요. 정말 나가시겠어요?"
+    "unsavedChangesConfirm": "작성 중인 내용이 있어요. 정말 나가시겠어요?",
+    "myListingsTitle": "내 상품 관리",
+    "myListingsEmpty": "등록한 상품이 없어요",
+    "myListingsLink": "내 상품 관리하기",
+    "hiddenBadge": "숨김",
+    "hideButton": "숨기기",
+    "restoreButton": "복원하기",
+    "viewLargeImageAria": "이미지 크게 보기",
+    "viewLargeImage": "크게 보기",
+    "thumbnailAria": "상품 이미지 {index}",
+    "imagePreviewAlt": "상품 이미지 {index} 미리보기",
+    "removeImageAria": "이미지 {index} 삭제"
   },
   "chat": {
     "listTitle": "채팅",

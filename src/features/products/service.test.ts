@@ -2,10 +2,13 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   productInputSchema,
+  productUpdateSchema,
   createProduct,
   getProduct,
   updateProduct,
   deleteProduct,
+  restoreProduct,
+  listOwnProducts,
   assertOwner,
 } from "./service";
 import { encryptPII } from "@/features/_shared/crypto";
@@ -15,18 +18,24 @@ const SELLER_ID = "seller-1";
 const OTHER_ID = "other-1";
 const PRODUCT_ID = "product-1";
 
+// saveProductImage(images.ts)가 실제로 만들어내는 경로 모양(products/<uuid>.webp)과 일치하는
+// 유효한 테스트용 경로 — productInputSchema.images의 정규식이 요구하는 형식 그대로.
+const VALID_IMAGE_A = "products/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa.webp";
+const VALID_IMAGE_B = "products/bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb.webp";
+
 const VALID_INPUT = {
   title: "아이폰 팝니다",
   description: "상태 좋아요",
   price: 100000,
   category: "DIGITAL",
   directPlace: "강남역 3번 출구",
-  images: ["img/1.png", "img/2.png"],
+  images: [VALID_IMAGE_A, VALID_IMAGE_B],
 };
 
 function fakeDb(overrides: {
   userFindUnique?: ReturnType<typeof vi.fn>;
   productFindUnique?: ReturnType<typeof vi.fn>;
+  productFindMany?: ReturnType<typeof vi.fn>;
   productCreate?: ReturnType<typeof vi.fn>;
   productUpdate?: ReturnType<typeof vi.fn>;
 }) {
@@ -36,6 +45,7 @@ function fakeDb(overrides: {
     },
     product: {
       findUnique: overrides.productFindUnique ?? vi.fn().mockResolvedValue(null),
+      findMany: overrides.productFindMany ?? vi.fn().mockResolvedValue([]),
       create: overrides.productCreate ?? vi.fn().mockResolvedValue({ id: PRODUCT_ID }),
       update: overrides.productUpdate ?? vi.fn().mockResolvedValue({}),
     },
@@ -77,6 +87,48 @@ describe("productInputSchema", () => {
   it("allows omitting directPlace and images", () => {
     const { directPlace, images, ...rest } = VALID_INPUT;
     expect(() => productInputSchema.parse(rest)).not.toThrow();
+  });
+
+  it("rejects an image path that isn't the server-generated products/<uuid>.webp shape", () => {
+    expect(() => productInputSchema.parse({ ...VALID_INPUT, images: ["img/1.png"] })).toThrow();
+    expect(() =>
+      productInputSchema.parse({ ...VALID_INPUT, images: ["../../etc/passwd"] }),
+    ).toThrow();
+    expect(() =>
+      productInputSchema.parse({ ...VALID_INPUT, images: ["https://evil.example/x.webp"] }),
+    ).toThrow();
+    expect(() =>
+      productInputSchema.parse({ ...VALID_INPUT, images: [`products/${VALID_IMAGE_A.slice(9, -5)}.png`] }),
+    ).toThrow();
+  });
+
+  it("rejects more than 10 images", () => {
+    const images = Array.from({ length: 11 }, (_, i) => `products/${String(i).padStart(8, "0")}-aaaa-4aaa-8aaa-aaaaaaaaaaaa.webp`);
+    expect(() => productInputSchema.parse({ ...VALID_INPUT, images })).toThrow();
+  });
+
+  it("accepts exactly 10 images", () => {
+    const images = Array.from({ length: 10 }, (_, i) => `products/${String(i).padStart(8, "0")}-aaaa-4aaa-8aaa-aaaaaaaaaaaa.webp`);
+    expect(() => productInputSchema.parse({ ...VALID_INPUT, images })).not.toThrow();
+  });
+});
+
+describe("productUpdateSchema", () => {
+  it("accepts a partial update with a valid images array (same validation as create)", () => {
+    expect(() => productUpdateSchema.parse({ images: [VALID_IMAGE_A] })).not.toThrow();
+  });
+
+  it("rejects an invalid image path in an update", () => {
+    expect(() => productUpdateSchema.parse({ images: ["not-a-valid-path.png"] })).toThrow();
+  });
+
+  it("rejects more than 10 images in an update", () => {
+    const images = Array.from({ length: 11 }, (_, i) => `products/${String(i).padStart(8, "0")}-aaaa-4aaa-8aaa-aaaaaaaaaaaa.webp`);
+    expect(() => productUpdateSchema.parse({ images })).toThrow();
+  });
+
+  it("allows an empty update object", () => {
+    expect(() => productUpdateSchema.parse({})).not.toThrow();
   });
 });
 
@@ -142,8 +194,8 @@ describe("createProduct", () => {
     const payload = productCreate.mock.calls[0][0];
     expect(payload.data.titleChoseong).toBe("ㅇㅇㅍ ㅍㄴㄷ");
     expect(payload.data.images.create).toEqual([
-      { path: "img/1.png", order: 0 },
-      { path: "img/2.png", order: 1 },
+      { path: VALID_IMAGE_A, order: 0 },
+      { path: VALID_IMAGE_B, order: 1 },
     ]);
   });
 
@@ -374,6 +426,45 @@ describe("updateProduct", () => {
     });
     expect(productUpdate).not.toHaveBeenCalled();
   });
+
+  it("when images are part of the update, replaces the full set (deleteMany + create ordered by index)", async () => {
+    const productFindUnique = vi.fn().mockResolvedValue({ sellerId: SELLER_ID, deletedAt: null });
+    const productUpdate = vi.fn().mockResolvedValue({});
+    const db = fakeDb({ productFindUnique, productUpdate });
+
+    await updateProduct(db, SELLER_ID, PRODUCT_ID, { images: [VALID_IMAGE_B, VALID_IMAGE_A] });
+
+    const payload = productUpdate.mock.calls[0][0];
+    expect(payload.data.images).toEqual({
+      deleteMany: {},
+      create: [
+        { path: VALID_IMAGE_B, order: 0 },
+        { path: VALID_IMAGE_A, order: 1 },
+      ],
+    });
+  });
+
+  it("leaves images untouched when images is not part of the update", async () => {
+    const productFindUnique = vi.fn().mockResolvedValue({ sellerId: SELLER_ID, deletedAt: null });
+    const productUpdate = vi.fn().mockResolvedValue({});
+    const db = fakeDb({ productFindUnique, productUpdate });
+
+    await updateProduct(db, SELLER_ID, PRODUCT_ID, { title: "새 제목" });
+
+    const payload = productUpdate.mock.calls[0][0];
+    expect(payload.data.images).toBeUndefined();
+  });
+
+  it("rejects an invalid image path in an update before mutating", async () => {
+    const productFindUnique = vi.fn().mockResolvedValue({ sellerId: SELLER_ID, deletedAt: null });
+    const productUpdate = vi.fn();
+    const db = fakeDb({ productFindUnique, productUpdate });
+
+    await expect(
+      updateProduct(db, SELLER_ID, PRODUCT_ID, { images: ["not-a-valid-path.png"] }),
+    ).rejects.toMatchObject({ code: "INVALID_INPUT", httpStatus: 400 });
+    expect(productUpdate).not.toHaveBeenCalled();
+  });
 });
 
 describe("deleteProduct", () => {
@@ -409,5 +500,103 @@ describe("deleteProduct", () => {
       where: { id: PRODUCT_ID },
       data: { deletedAt: expect.any(Date) },
     });
+  });
+});
+
+describe("restoreProduct — undo a hide, only for the owner", () => {
+  it("throws NOT_FOUND (404) when the product doesn't exist at all", async () => {
+    const productFindUnique = vi.fn().mockResolvedValue(null);
+    const productUpdate = vi.fn();
+    const db = fakeDb({ productFindUnique, productUpdate });
+
+    await expect(restoreProduct(db, SELLER_ID, PRODUCT_ID)).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      httpStatus: 404,
+    });
+    expect(productUpdate).not.toHaveBeenCalled();
+  });
+
+  it("throws FORBIDDEN (403) for a non-owner and performs no mutation", async () => {
+    // 숨겨진(deletedAt 세팅된) 상품이어도 소유자 확인은 정상적으로 통과해야 한다 —
+    // assertOwner와 달리 숨김 상태 자체 때문에 404가 나면 안 된다.
+    const productFindUnique = vi.fn().mockResolvedValue({ sellerId: SELLER_ID, deletedAt: new Date() });
+    const productUpdate = vi.fn();
+    const db = fakeDb({ productFindUnique, productUpdate });
+
+    await expect(restoreProduct(db, OTHER_ID, PRODUCT_ID)).rejects.toMatchObject({
+      code: "FORBIDDEN",
+      httpStatus: 403,
+    });
+    expect(productUpdate).not.toHaveBeenCalled();
+  });
+
+  it("clears deletedAt for the owner of a hidden product — the actual undo", async () => {
+    const productFindUnique = vi.fn().mockResolvedValue({ sellerId: SELLER_ID, deletedAt: new Date() });
+    const productUpdate = vi.fn().mockResolvedValue({});
+    const db = fakeDb({ productFindUnique, productUpdate });
+
+    await restoreProduct(db, SELLER_ID, PRODUCT_ID);
+
+    expect(productUpdate).toHaveBeenCalledWith({
+      where: { id: PRODUCT_ID },
+      data: { deletedAt: null },
+    });
+  });
+});
+
+describe("listOwnProducts — the owner's own way to reach hidden items", () => {
+  it("returns hidden and visible items with an isHidden flag derived from deletedAt", async () => {
+    const rows = [
+      {
+        id: "p-visible",
+        title: "보이는 상품",
+        price: 1000,
+        category: "ETC",
+        status: "SELLING",
+        deletedAt: null,
+        createdAt: new Date("2026-01-02T00:00:00.000Z"),
+        images: [{ path: VALID_IMAGE_A }],
+      },
+      {
+        id: "p-hidden",
+        title: "숨긴 상품",
+        price: 2000,
+        category: "ETC",
+        status: "SELLING",
+        deletedAt: new Date("2026-01-01T00:00:00.000Z"),
+        createdAt: new Date("2026-01-01T00:00:00.000Z"),
+        images: [],
+      },
+    ];
+    const productFindMany = vi.fn().mockResolvedValue(rows);
+    const db = fakeDb({ productFindMany });
+
+    const result = await listOwnProducts(db, SELLER_ID);
+
+    expect(productFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { sellerId: SELLER_ID } }),
+    );
+    expect(result).toEqual([
+      {
+        id: "p-visible",
+        title: "보이는 상품",
+        price: 1000,
+        category: "ETC",
+        status: "SELLING",
+        thumbnail: VALID_IMAGE_A,
+        isHidden: false,
+        createdAt: rows[0].createdAt,
+      },
+      {
+        id: "p-hidden",
+        title: "숨긴 상품",
+        price: 2000,
+        category: "ETC",
+        status: "SELLING",
+        thumbnail: null,
+        isHidden: true,
+        createdAt: rows[1].createdAt,
+      },
+    ]);
   });
 });

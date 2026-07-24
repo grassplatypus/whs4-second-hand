@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/features/_shared/prisma";
 import { currentUserFromRefresh } from "@/features/auth/session";
 import { REFRESH_COOKIE } from "@/features/auth/cookies";
+import { PageContainer } from "@/features/shell/ui";
 import { ProductForm } from "@/features/products/ProductForm";
 
 // 로그인 가드 — 활성 사용자 여부(정지 등)는 실제 등록 요청 시 API(requireActiveUser)가 최종 판단한다.
@@ -19,8 +20,8 @@ export default async function NewProductPage() {
   const hasLocation = seller?.lat != null && seller?.lng != null;
 
   return (
-    <main className="flex flex-1 flex-col items-center gap-6 py-12">
+    <PageContainer className="items-center">
       <ProductForm mode="create" hasLocation={hasLocation} />
-    </main>
+    </PageContainer>
   );
 }
