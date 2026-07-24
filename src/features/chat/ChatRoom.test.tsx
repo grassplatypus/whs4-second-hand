@@ -216,8 +216,59 @@ describe("ChatRoom", () => {
     const input = screen.getByLabelText(ko.chat.imageButton, { selector: "input" }) as HTMLInputElement;
     await user.upload(input, file);
 
+    // 사진은 바로 나가지 않고 먼저 미리보기로 확인한다.
+    expect(await screen.findByText(ko.chat.imagePreviewTitle)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: ko.chat.imageSend }));
+
     expect(await screen.findByRole("alert")).toHaveTextContent(ko.chat.imageBeforeReply);
     expect(screen.queryByText("leaky")).not.toBeInTheDocument();
+  });
+
+  it("사진을 고르면 바로 보내지 않고 미리보기를 먼저 보여준다(취소 가능)", async () => {
+    const fetchMock = vi.fn(async (_url: unknown, init?: RequestInit) => {
+      if ((init?.method ?? "GET").toUpperCase() === "GET") return { ok: true, json: async () => ({ messages: [] }) };
+      return { ok: true, json: async () => ({}) };
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderIt();
+
+    await screen.findByText("풀숲여우");
+    const input = screen.getByLabelText(ko.chat.imageButton, { selector: "input" }) as HTMLInputElement;
+    await user.upload(input, new File(["x"], "a.png", { type: "image/png" }));
+
+    expect(await screen.findByText(ko.chat.imagePreviewTitle)).toBeInTheDocument();
+    // 아직 업로드/전송 요청이 나가지 않았다.
+    expect(fetchMock.mock.calls.filter(([, i]) => (i as RequestInit | undefined)?.method === "POST")).toHaveLength(0);
+
+    await user.click(screen.getByRole("button", { name: ko.chat.cancel }));
+    expect(screen.queryByText(ko.chat.imagePreviewTitle)).not.toBeInTheDocument();
+  });
+
+  it("비속어가 있으면 먼저 물어보고, '그대로 보내기'를 눌러야 전송한다", async () => {
+    const posts: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: unknown, init?: RequestInit) => {
+        const method = (init?.method ?? "GET").toUpperCase();
+        if (method === "GET") return { ok: true, json: async () => ({ messages: [] }) };
+        posts.push(JSON.parse(init!.body as string));
+        return { ok: true, json: async () => ({ message: { _id: "m9", conversationId: "c1", kind: "text", text: "***", mine: true, masked: true, createdAt: new Date().toISOString() } }) };
+      }),
+    );
+    const user = userEvent.setup();
+    renderIt();
+
+    await screen.findByText("풀숲여우");
+    await user.type(screen.getByPlaceholderText(ko.chat.messagePlaceholder), "야 이 시발");
+    await user.click(screen.getByRole("button", { name: ko.chat.send }));
+
+    // 경고가 뜨고 아직 보내지 않았다.
+    expect(await screen.findByText(ko.chat.profanityWarning)).toBeInTheDocument();
+    expect(posts).toHaveLength(0);
+
+    await user.click(screen.getByRole("button", { name: ko.chat.profanitySendAnyway }));
+    await waitFor(() => expect(posts).toHaveLength(1));
   });
 
   it("blocks then unblocks the other user, posting conversationId each time (never a raw userId) (#5/G8)", async () => {

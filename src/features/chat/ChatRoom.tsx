@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import { Button, Input } from "@/features/shell/ui";
 import { Avatar } from "@/features/shell/Avatar";
+import { maskProfanity } from "./filter";
 
 /**
  * GET/POST /api/chat/conversations/[id]/messages가 내려주는 참여자용 모양.
@@ -105,6 +106,9 @@ export function ChatRoom({
   const [sendError, setSendError] = useState<string | null>(null);
 
   const [uploading, setUploading] = useState(false);
+  const [profanityWarned, setProfanityWarned] = useState(false);
+  const [pendingImage, setPendingImage] = useState<{ file: File; url: string } | null>(null);
+  const [leaving, setLeaving] = useState(false);
 
   const [blocked, setBlocked] = useState(initialBlocked);
   const [blockError, setBlockError] = useState<string | null>(null);
@@ -240,14 +244,20 @@ export function ChatRoom({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accessToken, conversationId, wsUrl, currentUserId]);
 
-  async function sendText(event: React.FormEvent) {
-    event.preventDefault();
+  async function sendText(event?: React.FormEvent, skipProfanityCheck = false) {
+    event?.preventDefault();
     setSendError(null);
     if (sending) return;
     if (!text.trim()) {
       setSendError(t("emptyMessage"));
       return;
     }
+    // 비속어가 섞였으면 한 번 물어본다 — 그래도 보내겠다면 그대로 보낸다(막지는 않는다).
+    if (!skipProfanityCheck && maskProfanity(text).hit) {
+      setProfanityWarned(true);
+      return;
+    }
+    setProfanityWarned(false);
     setSending(true);
     try {
       const res = await fetch(`/api/chat/conversations/${conversationId}/messages`, {
@@ -270,9 +280,22 @@ export function ChatRoom({
     }
   }
 
-  async function sendImage(event: React.ChangeEvent<HTMLInputElement>) {
+  /** 파일을 고르면 바로 보내지 않고 미리보기를 띄운다 — 잘못 고른 사진이 그대로 나가지 않게. */
+  function pickImage(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = "";
+    if (!file) return;
+    setSendError(null);
+    setPendingImage({ file, url: URL.createObjectURL(file) });
+  }
+
+  function cancelImage() {
+    if (pendingImage) URL.revokeObjectURL(pendingImage.url);
+    setPendingImage(null);
+  }
+
+  async function sendImage() {
+    const file = pendingImage?.file;
     if (!file) return;
     setSendError(null);
     setUploading(true);
@@ -299,10 +322,30 @@ export function ChatRoom({
       }
       const body = (await res.json()) as { message: ChatMessageView };
       appendMessage(body.message);
+      cancelImage(); // 미리보기 정리(objectURL 해제 포함)
     } catch {
       setSendError(t("failed"));
     } finally {
       setUploading(false);
+    }
+  }
+
+  /** 이 방을 내 목록에서 치운다 — 상대에겐 그대로 남고, 상대가 새 메시지를 보내면 다시 보인다. */
+  async function leaveRoom() {
+    if (leaving) return;
+    if (!window.confirm(t("leaveConfirm"))) return;
+    setLeaving(true);
+    try {
+      const res = await fetch(`/api/chat/conversations/${conversationId}/leave`, { method: "POST" });
+      if (!res.ok) {
+        setSendError(t("failed"));
+        return;
+      }
+      window.location.href = "/chat";
+    } catch {
+      setSendError(t("failed"));
+    } finally {
+      setLeaving(false);
     }
   }
 
@@ -390,6 +433,14 @@ export function ChatRoom({
             className="rounded-lg px-2.5 py-1 text-xs font-semibold text-zinc-500 transition-colors hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800"
           >
             {t("report")}
+          </button>
+          <button
+            type="button"
+            onClick={() => void leaveRoom()}
+            disabled={leaving}
+            className="rounded-lg px-2.5 py-1 text-xs font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50 dark:hover:bg-red-950"
+          >
+            {t("leaveRoom")}
           </button>
         </div>
       </div>
@@ -515,12 +566,55 @@ export function ChatRoom({
         </div>
       )}
 
+      {/* 사진은 고른 뒤 한 번 확인하고 보낸다 */}
+      {pendingImage && (
+        <div className="flex items-center gap-3 border-t border-zinc-200 p-3 dark:border-zinc-800">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={pendingImage.url} alt={t("imageMessageAlt")} className="h-20 w-20 rounded-lg object-cover" />
+          <div className="flex flex-col gap-2">
+            <span className="text-sm text-zinc-700 dark:text-zinc-300">{t("imagePreviewTitle")}</span>
+            <div className="flex gap-2">
+              <Button type="button" onClick={() => void sendImage()} disabled={uploading}>
+                {t("imageSend")}
+              </Button>
+              <Button type="button" variant="secondary" onClick={cancelImage} disabled={uploading}>
+                {t("cancel")}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 비속어가 섞였을 때 한 번 물어본다 — 막지는 않는다 */}
+      {profanityWarned && (
+        <div className="flex flex-wrap items-center gap-2 border-t border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+          <span>{t("profanityWarning")}</span>
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={() => {
+              // 확인했으니 검사 없이 그대로 보낸다.
+              setProfanityWarned(false);
+              void sendText(undefined, true);
+            }}
+          >
+            {t("profanitySendAnyway")}
+          </Button>
+          <Button type="button" variant="ghost" onClick={() => setProfanityWarned(false)}>
+            {t("cancel")}
+          </Button>
+        </div>
+      )}
+
       <form onSubmit={sendText} className="flex gap-2 border-t border-zinc-200 p-3 dark:border-zinc-800" noValidate>
         <label className="flex-1">
           <span className="sr-only">{t("messagePlaceholder")}</span>
           <Input
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e) => {
+              setText(e.target.value);
+              setProfanityWarned(false);
+            }}
             placeholder={t("messagePlaceholder")}
             disabled={composerDisabled}
           />
@@ -530,7 +624,7 @@ export function ChatRoom({
           <input
             type="file"
             accept="image/*"
-            onChange={(e) => void sendImage(e)}
+            onChange={pickImage}
             disabled={composerDisabled}
             className="hidden"
           />
