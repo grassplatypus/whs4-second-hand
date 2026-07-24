@@ -33,6 +33,18 @@ interface WsIncomingMessage {
   createdAt: string;
 }
 
+/** 신고 사유 — 자유 입력 대신 고르게 한다(관리자 분류가 쉬워지고, 사용자도 빠르다). */
+const REPORT_REASONS = [
+  "noShow",
+  "noReply",
+  "haggling",
+  "abuse",
+  "fraud",
+  "spam",
+  "inappropriate",
+  "etc",
+] as const;
+
 const ERROR_KEYS: Record<string, string> = {
   NOT_FOUND: "notFound",
   FORBIDDEN: "forbidden",
@@ -99,6 +111,7 @@ export function ChatRoom({
 
   const [reporting, setReporting] = useState(false);
   const [reportReason, setReportReason] = useState("");
+  const [reportDetail, setReportDetail] = useState("");
   const [reportSubmitting, setReportSubmitting] = useState(false);
   const [reportSent, setReportSent] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
@@ -319,10 +332,13 @@ export function ChatRoom({
     if (reportSubmitting) return;
     setReportSubmitting(true);
     try {
+      // 고른 사유(+선택 상세)를 합쳐 보낸다 — 서버는 사유 문자열만 저장한다.
+      const detail = reportDetail.trim();
+      const reason = detail ? `${t(`reportReason.${reportReason}`)} — ${detail}` : t(`reportReason.${reportReason}`);
       const res = await fetch("/api/chat/report", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ targetType: "user", conversationId, reason: reportReason }),
+        body: JSON.stringify({ targetType: "user", conversationId, reason }),
       });
       if (!res.ok) {
         const code = await readErrorCode(res);
@@ -332,6 +348,7 @@ export function ChatRoom({
       setReportSent(true);
       setReporting(false);
       setReportReason("");
+      setReportDetail("");
     } catch {
       setReportError(t("failed"));
     } finally {
@@ -390,17 +407,36 @@ export function ChatRoom({
         )}
 
         {reporting && (
-          <form onSubmit={submitReport} className="flex flex-col gap-2 rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
+          <form onSubmit={submitReport} className="flex flex-col gap-3 rounded-lg border border-zinc-200 p-3 dark:border-zinc-700">
+            <fieldset className="flex flex-col gap-2">
+              <legend className="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                {t("reportReasonLegend")}
+              </legend>
+              {REPORT_REASONS.map((code) => (
+                <label key={code} className="flex items-center gap-2 text-sm text-zinc-700 dark:text-zinc-300">
+                  <input
+                    type="radio"
+                    name="reportReason"
+                    value={code}
+                    checked={reportReason === code}
+                    onChange={(e) => setReportReason(e.target.value)}
+                    className="accent-emerald-600"
+                  />
+                  {t(`reportReason.${code}`)}
+                </label>
+              ))}
+            </fieldset>
             <label className="flex flex-col gap-1 text-sm text-zinc-700 dark:text-zinc-300">
-              {t("reportReasonPlaceholder")}
+              {t("reportDetailLabel")}
               <textarea
-                value={reportReason}
-                onChange={(e) => setReportReason(e.target.value)}
+                value={reportDetail}
+                onChange={(e) => setReportDetail(e.target.value)}
+                rows={2}
                 className="rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
               />
             </label>
             <div className="flex gap-2">
-              <Button type="submit" disabled={reportSubmitting}>
+              <Button type="submit" disabled={reportSubmitting || !reportReason}>
                 {t("reportSubmit")}
               </Button>
               <Button type="button" variant="secondary" onClick={() => setReporting(false)}>

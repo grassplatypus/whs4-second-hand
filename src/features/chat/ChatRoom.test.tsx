@@ -281,11 +281,17 @@ describe("ChatRoom", () => {
 
     await screen.findByText("풀숲여우");
     await user.click(screen.getByRole("button", { name: ko.chat.report }));
-    await user.type(screen.getByLabelText(ko.chat.reportReasonPlaceholder), "욕설을 했어요");
+    // 자유 입력이 아니라 정해진 사유를 고른다(+선택 상세).
+    await user.click(screen.getByRole("radio", { name: ko.chat.reportReason.noShow }));
+    await user.type(screen.getByLabelText(ko.chat.reportDetailLabel), "두 번이나 안 나왔어요");
     await user.click(screen.getByRole("button", { name: ko.chat.reportSubmit }));
 
     expect(await screen.findByText(ko.chat.reportSent)).toBeInTheDocument();
-    expect(reportBody).toEqual({ targetType: "user", conversationId: "c1", reason: "욕설을 했어요" });
+    expect(reportBody).toEqual({
+      targetType: "user",
+      conversationId: "c1",
+      reason: `${ko.chat.reportReason.noShow} — 두 번이나 안 나왔어요`,
+    });
   });
 
   it("does not attempt a WS connection when no access token is supplied (REST-only, no socket mock needed)", async () => {
