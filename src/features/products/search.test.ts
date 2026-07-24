@@ -103,6 +103,65 @@ describe("searchProducts — validation", () => {
       code: "INVALID_INPUT",
     });
   });
+
+  it("throws AppError INVALID_INPUT for a cursor with invalid distanceKm type (string instead of number)", async () => {
+    const queryRaw = vi.fn();
+    const db = fakeDb(queryRaw);
+    const cursor = Buffer.from(JSON.stringify({ id: "p1", distanceKm: "abc" })).toString("base64url");
+
+    await expect(searchProducts(db, { lat: 37.5, lng: 127.0, radiusKm: 5, cursor })).rejects.toMatchObject({
+      code: "INVALID_INPUT",
+      httpStatus: 400,
+    });
+    expect(queryRaw).not.toHaveBeenCalled();
+  });
+
+  it("throws AppError INVALID_INPUT for a cursor with invalid distanceKm value (Infinity)", async () => {
+    const queryRaw = vi.fn();
+    const db = fakeDb(queryRaw);
+    const cursor = Buffer.from(JSON.stringify({ id: "p1", distanceKm: Infinity })).toString("base64url");
+
+    await expect(searchProducts(db, { lat: 37.5, lng: 127.0, radiusKm: 5, cursor })).rejects.toMatchObject({
+      code: "INVALID_INPUT",
+      httpStatus: 400,
+    });
+  });
+
+  it("throws AppError INVALID_INPUT for a cursor with invalid createdAt type (object instead of string)", async () => {
+    const queryRaw = vi.fn();
+    const db = fakeDb(queryRaw);
+    const cursor = Buffer.from(JSON.stringify({ id: "p1", createdAt: {} })).toString("base64url");
+
+    await expect(searchProducts(db, { cursor })).rejects.toMatchObject({
+      code: "INVALID_INPUT",
+      httpStatus: 400,
+    });
+    expect(queryRaw).not.toHaveBeenCalled();
+  });
+
+  it("throws AppError INVALID_INPUT for a cursor with unparseable createdAt date string", async () => {
+    const queryRaw = vi.fn();
+    const db = fakeDb(queryRaw);
+    const cursor = Buffer.from(JSON.stringify({ id: "p1", createdAt: "not-a-date" })).toString("base64url");
+
+    await expect(searchProducts(db, { cursor })).rejects.toMatchObject({
+      code: "INVALID_INPUT",
+      httpStatus: 400,
+    });
+    expect(queryRaw).not.toHaveBeenCalled();
+  });
+
+  it("throws AppError INVALID_INPUT for a cursor with empty id", async () => {
+    const queryRaw = vi.fn();
+    const db = fakeDb(queryRaw);
+    const cursor = Buffer.from(JSON.stringify({ id: "", createdAt: "2026-01-01T00:00:00.000Z" })).toString("base64url");
+
+    await expect(searchProducts(db, { cursor })).rejects.toMatchObject({
+      code: "INVALID_INPUT",
+      httpStatus: 400,
+    });
+    expect(queryRaw).not.toHaveBeenCalled();
+  });
 });
 
 describe("searchProducts — base filters", () => {
@@ -191,6 +250,68 @@ describe("searchProducts — 초성 vs title search", () => {
     expect(text).toContain('"title" ILIKE');
     expect(text).not.toContain('"titleChoseong" ILIKE');
     expect(sqlArg.values).toContain("아이폰");
+  });
+
+  it("escapes % and _ in q to prevent LIKE wildcard matching", async () => {
+    const queryRaw = vi.fn().mockResolvedValue([]);
+    const db = fakeDb(queryRaw);
+
+    await searchProducts(db, { q: "50%" });
+
+    const sqlArg = queryRaw.mock.calls[0][0] as { sql: string; text: string; values: unknown[] };
+    const text = sqlArg.text ?? sqlArg.sql;
+    expect(text).toContain("ESCAPE");
+    expect(sqlArg.values).toContain("50\\%");
+  });
+
+  it("escapes _ in q for title search", async () => {
+    const queryRaw = vi.fn().mockResolvedValue([]);
+    const db = fakeDb(queryRaw);
+
+    await searchProducts(db, { q: "a_b" });
+
+    const sqlArg = queryRaw.mock.calls[0][0] as { sql: string; text: string; values: unknown[] };
+    const text = sqlArg.text ?? sqlArg.sql;
+    expect(text).toContain("ESCAPE");
+    expect(sqlArg.values).toContain("a\\_b");
+  });
+
+  it("escapes backslash in q (escape backslash first to avoid double-escaping)", async () => {
+    const queryRaw = vi.fn().mockResolvedValue([]);
+    const db = fakeDb(queryRaw);
+
+    await searchProducts(db, { q: "a\\b%c_d" });
+
+    const sqlArg = queryRaw.mock.calls[0][0] as { sql: string; text: string; values: unknown[] };
+    const text = sqlArg.text ?? sqlArg.sql;
+    expect(text).toContain("ESCAPE");
+    expect(sqlArg.values).toContain("a\\\\b\\%c\\_d");
+  });
+
+  it("escapes wildcards in choseong queries too", async () => {
+    const queryRaw = vi.fn().mockResolvedValue([]);
+    const db = fakeDb(queryRaw);
+
+    await searchProducts(db, { q: "ㅇㅍ" });
+
+    const sqlArg = queryRaw.mock.calls[0][0] as { sql: string; text: string; values: unknown[] };
+    const text = sqlArg.text ?? sqlArg.sql;
+    expect(text).toContain('"titleChoseong" ILIKE');
+    expect(text).toContain("ESCAPE");
+    expect(sqlArg.values).toContain("ㅇㅍ");
+  });
+
+  it("escapes wildcards when q is mixed choseong and regular text (falls back to title ILIKE)", async () => {
+    const queryRaw = vi.fn().mockResolvedValue([]);
+    const db = fakeDb(queryRaw);
+
+    await searchProducts(db, { q: "ㅇ100%" });
+
+    const sqlArg = queryRaw.mock.calls[0][0] as { sql: string; text: string; values: unknown[] };
+    const text = sqlArg.text ?? sqlArg.sql;
+    expect(text).toContain('"title" ILIKE');
+    expect(text).toContain("ESCAPE");
+    expect(sqlArg.values).toContain("ㅇ100\\%");
   });
 });
 

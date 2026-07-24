@@ -10,6 +10,10 @@ function invalidInput(): AppError {
   return new AppError("INVALID_INPUT", "검색 조건을 다시 확인해 주세요.", 400);
 }
 
+function escapeWildcards(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+}
+
 export const searchSchema = z.object({
   lat: z.number().optional(),
   lng: z.number().optional(),
@@ -57,11 +61,32 @@ function decodeCursor(cursor: string): CursorPayload {
     if (
       typeof parsed !== "object" ||
       parsed === null ||
-      typeof (parsed as Record<string, unknown>).id !== "string"
+      typeof (parsed as Record<string, unknown>).id !== "string" ||
+      (parsed as Record<string, unknown>).id === ""
     ) {
       throw new Error("malformed cursor");
     }
-    return parsed as CursorPayload;
+    const payload = parsed as Record<string, unknown>;
+
+    // Validate createdAt if present: must be a string that parses to a valid Date
+    if (payload.createdAt !== undefined) {
+      if (typeof payload.createdAt !== "string") {
+        throw new Error("createdAt must be a string");
+      }
+      const date = new Date(payload.createdAt);
+      if (isNaN(date.getTime())) {
+        throw new Error("createdAt is not a valid ISO date");
+      }
+    }
+
+    // Validate distanceKm if present: must be a finite number
+    if (payload.distanceKm !== undefined) {
+      if (typeof payload.distanceKm !== "number" || !isFinite(payload.distanceKm)) {
+        throw new Error("distanceKm must be a finite number");
+      }
+    }
+
+    return payload as unknown as CursorPayload;
   } catch {
     throw invalidInput();
   }
@@ -129,10 +154,11 @@ export async function searchProducts(
     baseConditions.push(Prisma.sql`p."price" <= ${input.maxPrice}`);
   }
   if (input.q) {
+    const escapedQ = escapeWildcards(input.q);
     baseConditions.push(
       isChoseongQuery(input.q)
-        ? Prisma.sql`p."titleChoseong" ILIKE '%' || ${input.q} || '%'`
-        : Prisma.sql`p."title" ILIKE '%' || ${input.q} || '%'`,
+        ? Prisma.sql`p."titleChoseong" ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'`
+        : Prisma.sql`p."title" ILIKE '%' || ${escapedQ} || '%' ESCAPE '\\'`,
     );
   }
 
