@@ -24,6 +24,12 @@ enum TwoFactorMethod {
   EMAIL
 }
 
+enum OtpPurpose {
+  LOGIN_2FA
+  STEP_UP
+  SETUP
+}
+
 model User {
   id               String          @id @default(cuid())
   nickname         String          @unique
@@ -45,6 +51,7 @@ model User {
   updatedAt        DateTime        @updatedAt
   sessions         Session[]
   identities       AuthIdentity[]
+  emailOtps        EmailOtp[]
 
   @@index([phoneBlindIndex])
 }
@@ -75,6 +82,19 @@ model Session {
 
   @@index([userId])
   @@index([familyId])
+}
+
+model EmailOtp {
+  id         String     @id @default(cuid())
+  userId     String
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash   String // bcrypt 해시. 평문 코드 미저장
+  purpose    OtpPurpose
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime   @default(now())
+
+  @@index([userId])
 }
 
 model AuthAuditLog {
