@@ -53,9 +53,21 @@
     "recent": "Recently listed",
     "seeAll": "See all",
     "empty": "No products yet. Be the first to list one!",
-    "featLocation": { "icon": "📍", "title": "Neighborhood-based", "desc": "Find items within your radius. Your exact location is never exposed." },
-    "featEscrow": { "icon": "🛡️", "title": "Safe escrow", "desc": "Funds are held until you receive the item, then released. No scams." },
-    "featChat": { "icon": "💬", "title": "Real-time chat", "desc": "Talk to sellers directly, with profanity filtering, blocking and reporting." }
+    "featLocation": {
+      "icon": "📍",
+      "title": "Neighborhood-based",
+      "desc": "Find items within your radius. Your exact location is never exposed."
+    },
+    "featEscrow": {
+      "icon": "🛡️",
+      "title": "Safe escrow",
+      "desc": "Funds are held until you receive the item, then released. No scams."
+    },
+    "featChat": {
+      "icon": "💬",
+      "title": "Real-time chat",
+      "desc": "Talk to sellers directly, with profanity filtering, blocking and reporting."
+    }
   },
   "meta": {
     "title": "Dongne Market — local secondhand trading",
@@ -499,6 +511,14 @@
     "alreadySuspended": "That user is already suspended",
     "notSuspended": "That user isn't suspended",
     "invalidInput": "Please check your input",
-    "unauthenticated": "Please log in"
+    "unauthenticated": "Please log in",
+    "dormantTitle": "Dormant chat rooms",
+    "dormantSubtitle": "Rooms both sides left with no new messages. You can clean them up.",
+    "dormantEmpty": "No dormant rooms to clean up",
+    "dormantDelete": "Delete",
+    "dormantDeleteAll": "Delete all",
+    "dormantLink": "Clean up dormant chats",
+    "autoFlagged": "Auto-detected",
+    "loading": "Loading"
   }
 }

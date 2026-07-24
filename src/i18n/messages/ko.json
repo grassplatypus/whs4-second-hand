@@ -53,9 +53,21 @@
     "recent": "최근 등록된 상품",
     "seeAll": "전체 보기",
     "empty": "아직 등록된 상품이 없어요. 첫 상품을 올려보세요!",
-    "featLocation": { "icon": "📍", "title": "동네 기반", "desc": "내 주변 반경으로 상품을 찾아요. 정확한 위치는 노출되지 않아요." },
-    "featEscrow": { "icon": "🛡️", "title": "안전거래", "desc": "대금을 잠깐 보관했다가 물건을 받으면 정산해요. 사기 걱정 없이." },
-    "featChat": { "icon": "💬", "title": "실시간 채팅", "desc": "판매자와 바로 대화해요. 비속어 필터·차단·신고까지." }
+    "featLocation": {
+      "icon": "📍",
+      "title": "동네 기반",
+      "desc": "내 주변 반경으로 상품을 찾아요. 정확한 위치는 노출되지 않아요."
+    },
+    "featEscrow": {
+      "icon": "🛡️",
+      "title": "안전거래",
+      "desc": "대금을 잠깐 보관했다가 물건을 받으면 정산해요. 사기 걱정 없이."
+    },
+    "featChat": {
+      "icon": "💬",
+      "title": "실시간 채팅",
+      "desc": "판매자와 바로 대화해요. 비속어 필터·차단·신고까지."
+    }
   },
   "meta": {
     "title": "동네장터 — 우리 동네 중고거래",
@@ -499,6 +511,14 @@
     "alreadySuspended": "이미 정지된 유저예요",
     "notSuspended": "정지 상태가 아니에요",
     "invalidInput": "입력값을 확인해 주세요",
-    "unauthenticated": "로그인이 필요해요"
+    "unauthenticated": "로그인이 필요해요",
+    "dormantTitle": "휴면 채팅방",
+    "dormantSubtitle": "양쪽 모두 나가고 새 메시지가 없는 방이에요. 정리할 수 있어요.",
+    "dormantEmpty": "정리할 휴면 방이 없어요",
+    "dormantDelete": "삭제",
+    "dormantDeleteAll": "전체 삭제",
+    "dormantLink": "휴면 채팅방 정리",
+    "autoFlagged": "자동 감지",
+    "loading": "불러오는 중"
   }
 }

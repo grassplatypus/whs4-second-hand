@@ -59,6 +59,10 @@ export interface ReportView {
   snapshot: string | null;
   status: string;
   createdAt: Date;
+  /** 시스템이 먼저 잡아낸 건(비속어·연락처 우회 등). */
+  auto: boolean;
+  /** 이 건을 신고한 사용자 수. */
+  userReportCount: number;
 }
 
 /** 신고 목록(관리자). Mongo reports + Postgres 닉네임 보강. PII는 닉네임만. */
@@ -88,6 +92,10 @@ export async function listReports(
     snapshot: r.snapshot ?? null,
     status: r.status,
     createdAt: r.createdAt,
+    // 시스템이 먼저 잡아낸 건(비속어·연락처 우회 등)인지 — 관리자 화면에 배지로 보여준다.
+    auto: r.auto === true,
+    /** 이 건을 신고한 사용자 수(자동 감지에 사용자 신고가 합쳐졌을 수 있다). */
+    userReportCount: r.reportedBy?.length ?? 0,
   }));
 }
 

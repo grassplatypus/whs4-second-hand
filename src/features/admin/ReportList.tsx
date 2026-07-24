@@ -22,6 +22,10 @@ export interface ReportItemView {
   snapshot: string | null;
   status: string;
   createdAt: string;
+  /** 시스템이 먼저 잡아낸 건(비속어·연락처 우회 등). */
+  auto?: boolean;
+  /** 이 건을 신고한 사용자 수. */
+  userReportCount?: number;
 }
 
 /** 서비스가 던지는 코드 → admin 카탈로그 키. 서버 message 원문은 절대 렌더하지 않는다. */
@@ -186,8 +190,15 @@ export function ReportList() {
           <li key={r.id}>
             <Card className="flex flex-col gap-3 text-sm">
               <div className="flex items-center justify-between gap-2">
-                <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
-                  {r.targetType === "user" ? t("targetUser") : t("targetMessage")}
+                <span className="flex items-center gap-1.5">
+                  <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
+                    {r.targetType === "user" ? t("targetUser") : t("targetMessage")}
+                  </span>
+                  {r.auto && (
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800 dark:bg-amber-900/50 dark:text-amber-200">
+                      {t("autoFlagged")}
+                    </span>
+                  )}
                 </span>
                 <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-semibold text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300">
                   {statusLabel(r.status)}
