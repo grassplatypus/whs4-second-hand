@@ -66,7 +66,7 @@ export function PhoneVerify({ initialVerified }: { initialVerified: boolean }) {
   }
 
   return (
-    <div className="flex w-80 flex-col gap-4">
+    <div className="flex w-full max-w-sm flex-col gap-4">
       {verified ? (
         <p>{t("verified")}</p>
       ) : (
@@ -81,16 +81,16 @@ export function PhoneVerify({ initialVerified }: { initialVerified: boolean }) {
             <form onSubmit={confirm} className="flex flex-col gap-2" noValidate>
               <label className="flex flex-col gap-1">
                 {t("codeLabel")}
-                <input value={code} onChange={(e) => setCode(e.target.value)} className="rounded border px-2 py-1" />
+                <input value={code} onChange={(e) => setCode(e.target.value)} className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 dark:border-zinc-700 dark:bg-zinc-950" />
               </label>
               <button
                 type="submit"
                 disabled={submitting}
-                className="rounded bg-black px-3 py-2 text-white disabled:opacity-50"
+                className="rounded bg-emerald-600 hover:bg-emerald-700 px-3 py-2 text-white disabled:opacity-50"
               >
                 {t("confirm")}
               </button>
-              <button type="button" onClick={send} disabled={submitting} className="text-sm text-blue-600">
+              <button type="button" onClick={send} disabled={submitting} className="text-sm text-emerald-600 hover:underline">
                 {t("resend")}
               </button>
             </form>
