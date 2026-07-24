@@ -1,0 +1,232 @@
+import { AppError } from "@/features/_shared/error";
+import { maskProfanity } from "./filter";
+import type { ChatRepo, Conversation, Message } from "./repo";
+import type { ChatDb } from "./db";
+
+function notFound(): AppError {
+  return new AppError("NOT_FOUND", "상품을 찾을 수 없어요.", 404);
+}
+
+function conversationNotFound(): AppError {
+  return new AppError("NOT_FOUND", "대화를 찾을 수 없어요.", 404);
+}
+
+function forbidden(): AppError {
+  return new AppError("FORBIDDEN", "권한이 없어요.", 403);
+}
+
+function blocked(): AppError {
+  return new AppError("BLOCKED", "차단된 상대와는 대화할 수 없어요.", 403);
+}
+
+/** 두 사용자 사이에 어느 방향으로든 차단이 걸려 있는지 확인한다(항상 양방향 체크). */
+async function isEitherBlocked(repo: ChatRepo, userA: string, userB: string): Promise<boolean> {
+  const [aBlockedB, bBlockedA] = await Promise.all([repo.isBlocked(userA, userB), repo.isBlocked(userB, userA)]);
+  return aBlockedB || bBlockedA;
+}
+
+/** conversation의 참여자가 아니면 403. buyer/seller 둘 다 아닌 제3자는 절대 통과하지 못한다. */
+function assertParticipant(conversation: Conversation, userId: string): void {
+  if (conversation.buyerId !== userId && conversation.sellerId !== userId) throw forbidden();
+}
+
+function otherParticipant(conversation: Conversation, userId: string): string {
+  return conversation.buyerId === userId ? conversation.sellerId : conversation.buyerId;
+}
+
+/**
+ * 상품 채팅 시작 — 기존 (productId, buyerId) 대화가 있으면 재사용하고, 없으면 새로 만든다.
+ * 첫 메시지는 항상 텍스트이며 마스킹을 거쳐 저장/반환된다(전달되는 텍스트에 원문 욕설이 남지 않는다).
+ */
+export async function startConversation(
+  repo: ChatRepo,
+  db: ChatDb,
+  buyerId: string,
+  productId: string,
+  firstText: string,
+): Promise<{ conversationId: string; message: Message }> {
+  const product = await db.product.findFirst({
+    where: { id: productId, deletedAt: null },
+    select: { id: true, sellerId: true },
+  });
+  if (!product) throw notFound();
+
+  if (product.sellerId === buyerId) {
+    throw new AppError("SELF_CHAT", "자기 상품에는 채팅할 수 없어요.", 400);
+  }
+
+  if (await isEitherBlocked(repo, product.sellerId, buyerId)) throw blocked();
+
+  if (!firstText.trim()) {
+    throw new AppError("EMPTY_MESSAGE", "메시지를 입력해 주세요.", 400);
+  }
+
+  let conversation = await repo.findConversationByProduct(productId, buyerId);
+  const now = new Date();
+  if (!conversation) {
+    conversation = await repo.createConversation({
+      productId,
+      sellerId: product.sellerId,
+      buyerId,
+      createdAt: now,
+      lastMessageAt: now,
+    });
+  }
+
+  const { masked, hit } = maskProfanity(firstText);
+  const message = await repo.insertMessage({
+    conversationId: conversation._id,
+    senderId: buyerId,
+    kind: "text",
+    text: masked,
+    masked: hit,
+    createdAt: now,
+  });
+  await repo.updateLastMessageAt(conversation._id, now);
+
+  return { conversationId: conversation._id, message };
+}
+
+export interface SendMessageInput {
+  kind: "text" | "image";
+  text?: string;
+  imagePath?: string;
+}
+
+/**
+ * 대화에 메시지 전송 — 참여자만, 차단 관계는 양방향 확인, 첫 메시지는 이미지 불가.
+ * 텍스트는 항상 마스킹을 거쳐 저장/반환된다.
+ */
+export async function sendMessage(
+  repo: ChatRepo,
+  senderId: string,
+  conversationId: string,
+  input: SendMessageInput,
+): Promise<Message> {
+  const conversation = await repo.getConversation(conversationId);
+  if (!conversation) throw conversationNotFound();
+
+  assertParticipant(conversation, senderId);
+  const other = otherParticipant(conversation, senderId);
+
+  if (await isEitherBlocked(repo, senderId, other)) throw blocked();
+
+  const now = new Date();
+
+  if (input.kind === "image") {
+    const count = await repo.countMessages(conversationId);
+    if (count === 0) {
+      throw new AppError("FIRST_MSG_TEXT_ONLY", "첫 메시지는 글로 보내 주세요.", 400);
+    }
+    const message = await repo.insertMessage({
+      conversationId,
+      senderId,
+      kind: "image",
+      imagePath: input.imagePath,
+      masked: false,
+      createdAt: now,
+    });
+    await repo.updateLastMessageAt(conversationId, now);
+    return message;
+  }
+
+  const { masked, hit } = maskProfanity(input.text ?? "");
+  const message = await repo.insertMessage({
+    conversationId,
+    senderId,
+    kind: "text",
+    text: masked,
+    masked: hit,
+    createdAt: now,
+  });
+  await repo.updateLastMessageAt(conversationId, now);
+  return message;
+}
+
+/** 목록/상세에 절대 노출하면 안 되는 필드(이메일/전화/정확 위치 등)를 담지 않는 안전한 요약. */
+export interface ConversationSummary {
+  conversationId: string;
+  otherNickname: string;
+  productId: string;
+  lastMessageAt: Date;
+}
+
+/**
+ * 내 대화 목록 — 상대방은 닉네임만 노출한다(이메일/전화/식별정보는 select조차 하지 않는다).
+ */
+export async function listConversations(repo: ChatRepo, db: ChatDb, userId: string): Promise<ConversationSummary[]> {
+  const conversations = await repo.listConversations(userId);
+
+  return Promise.all(
+    conversations.map(async (conversation) => {
+      const otherId = otherParticipant(conversation, userId);
+      const other = await db.user.findUnique({ where: { id: otherId }, select: { nickname: true } });
+      return {
+        conversationId: conversation._id,
+        otherNickname: other?.nickname ?? "",
+        productId: conversation.productId,
+        lastMessageAt: conversation.lastMessageAt,
+      };
+    }),
+  );
+}
+
+/** 대화 메시지 목록 — 참여자가 아니면 403(제3자 격리). 저장된 마스킹 텍스트를 그대로 반환한다. */
+export async function listMessages(
+  repo: ChatRepo,
+  userId: string,
+  conversationId: string,
+  cursor?: Date,
+): Promise<Message[]> {
+  const conversation = await repo.getConversation(conversationId);
+  if (!conversation) throw conversationNotFound();
+
+  assertParticipant(conversation, userId);
+
+  return repo.listMessages(conversationId, cursor ? { cursor } : undefined);
+}
+
+export async function blockUser(repo: ChatRepo, userId: string, targetId: string): Promise<void> {
+  await repo.block(userId, targetId);
+}
+
+export async function unblockUser(repo: ChatRepo, userId: string, targetId: string): Promise<void> {
+  await repo.unblock(userId, targetId);
+}
+
+/**
+ * 메시지 신고 — status는 항상 "open". 스냅샷은 참고용: repo는 messageId로 원본 메시지를
+ * 조회하는 메서드를 제공하지 않으므로(저장 시 이미 마스킹된 상태), 여기서는 별도 조회 없이
+ * snapshot을 비워 둔다 — 신고 자체(누가/무엇을/왜)는 항상 기록된다.
+ */
+export async function reportMessage(
+  repo: ChatRepo,
+  reporterId: string,
+  messageId: string,
+  reason: string,
+): Promise<void> {
+  await repo.insertReport({
+    reporterId,
+    targetType: "message",
+    targetId: messageId,
+    reason,
+    createdAt: new Date(),
+    status: "open",
+  });
+}
+
+export async function reportUser(
+  repo: ChatRepo,
+  reporterId: string,
+  targetUserId: string,
+  reason: string,
+): Promise<void> {
+  await repo.insertReport({
+    reporterId,
+    targetType: "user",
+    targetId: targetUserId,
+    reason,
+    createdAt: new Date(),
+    status: "open",
+  });
+}

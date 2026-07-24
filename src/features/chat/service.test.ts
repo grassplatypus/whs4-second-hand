@@ -1,0 +1,370 @@
+// @vitest-environment node
+import { describe, it, expect, vi } from "vitest";
+import {
+  startConversation,
+  sendMessage,
+  listConversations,
+  listMessages,
+  blockUser,
+  unblockUser,
+  reportMessage,
+  reportUser,
+} from "./service";
+import { InMemoryChatRepo } from "./repo";
+import type { ChatDb } from "./db";
+
+const SELLER_ID = "seller-1";
+const BUYER_ID = "buyer-1";
+const OTHER_ID = "other-1";
+const PRODUCT_ID = "product-1";
+
+function fakeDb(overrides: {
+  productFindFirst?: ReturnType<typeof vi.fn>;
+  userFindUnique?: ReturnType<typeof vi.fn>;
+} = {}): ChatDb {
+  return {
+    product: {
+      findFirst:
+        overrides.productFindFirst ??
+        vi.fn().mockResolvedValue({ id: PRODUCT_ID, sellerId: SELLER_ID }),
+    },
+    user: {
+      findUnique: overrides.userFindUnique ?? vi.fn().mockResolvedValue({ nickname: "닉네임" }),
+    },
+  } as unknown as ChatDb;
+}
+
+describe("startConversation", () => {
+  it("returns NOT_FOUND when the product is missing", async () => {
+    const repo = new InMemoryChatRepo();
+    const db = fakeDb({ productFindFirst: vi.fn().mockResolvedValue(null) });
+
+    await expect(startConversation(repo, db, BUYER_ID, PRODUCT_ID, "안녕하세요")).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      httpStatus: 404,
+    });
+  });
+
+  it("blocks the seller from chatting with themself (SELF_CHAT 400)", async () => {
+    const repo = new InMemoryChatRepo();
+    const db = fakeDb();
+
+    await expect(startConversation(repo, db, SELLER_ID, PRODUCT_ID, "안녕하세요")).rejects.toMatchObject({
+      code: "SELF_CHAT",
+      httpStatus: 400,
+    });
+  });
+
+  it("blocks starting a conversation when either direction has blocked (BLOCKED 403)", async () => {
+    const repo = new InMemoryChatRepo();
+    const db = fakeDb();
+    await repo.block(SELLER_ID, BUYER_ID);
+
+    await expect(startConversation(repo, db, BUYER_ID, PRODUCT_ID, "안녕하세요")).rejects.toMatchObject({
+      code: "BLOCKED",
+      httpStatus: 403,
+    });
+  });
+
+  it("blocks starting a conversation when the buyer blocked the seller (other direction)", async () => {
+    const repo = new InMemoryChatRepo();
+    const db = fakeDb();
+    await repo.block(BUYER_ID, SELLER_ID);
+
+    await expect(startConversation(repo, db, BUYER_ID, PRODUCT_ID, "안녕하세요")).rejects.toMatchObject({
+      code: "BLOCKED",
+      httpStatus: 403,
+    });
+  });
+
+  it("rejects an empty/whitespace first message (EMPTY_MESSAGE 400)", async () => {
+    const repo = new InMemoryChatRepo();
+    const db = fakeDb();
+
+    await expect(startConversation(repo, db, BUYER_ID, PRODUCT_ID, "   ")).rejects.toMatchObject({
+      code: "EMPTY_MESSAGE",
+      httpStatus: 400,
+    });
+  });
+
+  it("creates a new conversation and stores the first message as text", async () => {
+    const repo = new InMemoryChatRepo();
+    const db = fakeDb();
+
+    const result = await startConversation(repo, db, BUYER_ID, PRODUCT_ID, "안녕하세요 구매하고 싶어요");
+
+    expect(result.conversationId).toBeTruthy();
+    expect(result.message.kind).toBe("text");
+    expect(result.message.text).toBe("안녕하세요 구매하고 싶어요");
+    expect(result.message.masked).toBe(false);
+
+    const conversation = await repo.getConversation(result.conversationId);
+    expect(conversation?.buyerId).toBe(BUYER_ID);
+    expect(conversation?.sellerId).toBe(SELLER_ID);
+  });
+
+  it("reuses an existing conversation for the same product+buyer instead of creating a duplicate", async () => {
+    const repo = new InMemoryChatRepo();
+    const db = fakeDb();
+
+    const first = await startConversation(repo, db, BUYER_ID, PRODUCT_ID, "첫 메시지");
+    const second = await startConversation(repo, db, BUYER_ID, PRODUCT_ID, "두번째 메시지");
+
+    expect(second.conversationId).toBe(first.conversationId);
+    const messages = await repo.listMessages(first.conversationId);
+    expect(messages.length).toBe(2);
+  });
+
+  it("masks profanity in the first message and sets the masked flag (delivered text has no literal profanity)", async () => {
+    const repo = new InMemoryChatRepo();
+    const db = fakeDb();
+
+    const result = await startConversation(repo, db, BUYER_ID, PRODUCT_ID, "시발 이거 얼마예요");
+
+    expect(result.message.masked).toBe(true);
+    expect(result.message.text).not.toContain("시발");
+    expect(result.message.text).toContain("*");
+  });
+});
+
+describe("sendMessage", () => {
+  async function setupConversation(repo: InMemoryChatRepo) {
+    return repo.createConversation({
+      productId: PRODUCT_ID,
+      sellerId: SELLER_ID,
+      buyerId: BUYER_ID,
+      createdAt: new Date(),
+      lastMessageAt: new Date(),
+    });
+  }
+
+  it("returns NOT_FOUND for a missing conversation", async () => {
+    const repo = new InMemoryChatRepo();
+    await expect(
+      sendMessage(repo, BUYER_ID, "nope", { kind: "text", text: "hi" }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND", httpStatus: 404 });
+  });
+
+  it("rejects a non-participant with FORBIDDEN 403 and writes nothing (participant isolation)", async () => {
+    const repo = new InMemoryChatRepo();
+    const conversation = await setupConversation(repo);
+
+    await expect(
+      sendMessage(repo, OTHER_ID, conversation._id, { kind: "text", text: "몰래 보냄" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN", httpStatus: 403 });
+
+    const messages = await repo.listMessages(conversation._id);
+    expect(messages.length).toBe(0);
+  });
+
+  it("blocks sending when either direction has blocked the other", async () => {
+    const repo = new InMemoryChatRepo();
+    const conversation = await setupConversation(repo);
+    await repo.block(SELLER_ID, BUYER_ID);
+
+    await expect(
+      sendMessage(repo, BUYER_ID, conversation._id, { kind: "text", text: "안녕" }),
+    ).rejects.toMatchObject({ code: "BLOCKED", httpStatus: 403 });
+  });
+
+  it("blocks the first message being an image (FIRST_MSG_TEXT_ONLY 400)", async () => {
+    const repo = new InMemoryChatRepo();
+    const conversation = await setupConversation(repo);
+
+    await expect(
+      sendMessage(repo, BUYER_ID, conversation._id, { kind: "image", imagePath: "img/1.png" }),
+    ).rejects.toMatchObject({ code: "FIRST_MSG_TEXT_ONLY", httpStatus: 400 });
+  });
+
+  it("allows an image once a first text message exists, and updates lastMessageAt", async () => {
+    const repo = new InMemoryChatRepo();
+    const conversation = await setupConversation(repo);
+
+    await sendMessage(repo, BUYER_ID, conversation._id, { kind: "text", text: "안녕하세요" });
+    const image = await sendMessage(repo, SELLER_ID, conversation._id, {
+      kind: "image",
+      imagePath: "img/1.png",
+    });
+
+    expect(image.kind).toBe("image");
+    expect(image.imagePath).toBe("img/1.png");
+
+    const updated = await repo.getConversation(conversation._id);
+    expect(updated?.lastMessageAt.getTime()).toBeGreaterThanOrEqual(updated!.createdAt.getTime());
+  });
+
+  it("masks profanity in a text message (delivered text has no literal profanity)", async () => {
+    const repo = new InMemoryChatRepo();
+    const conversation = await setupConversation(repo);
+
+    const message = await sendMessage(repo, BUYER_ID, conversation._id, {
+      kind: "text",
+      text: "시발 진짜",
+    });
+
+    expect(message.masked).toBe(true);
+    expect(message.text).not.toContain("시발");
+    expect(message.text).toContain("*");
+  });
+});
+
+describe("listConversations", () => {
+  it("returns only otherNickname + product summary — no email/phone (PII-leaky prisma user asserted absent)", async () => {
+    const repo = new InMemoryChatRepo();
+    const conversation = await repo.createConversation({
+      productId: PRODUCT_ID,
+      sellerId: SELLER_ID,
+      buyerId: BUYER_ID,
+      createdAt: new Date(),
+      lastMessageAt: new Date(2026, 0, 1),
+    });
+
+    // "Leaky" prisma mock — simulates a bug where nickname select accidentally
+    // widens to grab more fields. The service must never surface them.
+    const leakyUser = {
+      nickname: "판매자닉네임",
+      email: "seller@example.com",
+      phone: "010-1234-5678",
+    };
+    const db = fakeDb({ userFindUnique: vi.fn().mockResolvedValue(leakyUser) });
+
+    const summaries = await listConversations(repo, db, BUYER_ID);
+
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]).toEqual({
+      conversationId: conversation._id,
+      otherNickname: "판매자닉네임",
+      productId: PRODUCT_ID,
+      lastMessageAt: conversation.lastMessageAt,
+    });
+    const serialized = JSON.stringify(summaries);
+    expect(serialized).not.toContain("email");
+    expect(serialized).not.toContain("phone");
+    expect(serialized).not.toContain("seller@example.com");
+    expect(serialized).not.toContain("010-1234-5678");
+  });
+
+  it("resolves the other participant's nickname from the seller's perspective too", async () => {
+    const repo = new InMemoryChatRepo();
+    await repo.createConversation({
+      productId: PRODUCT_ID,
+      sellerId: SELLER_ID,
+      buyerId: BUYER_ID,
+      createdAt: new Date(),
+      lastMessageAt: new Date(),
+    });
+    const userFindUnique = vi.fn().mockResolvedValue({ nickname: "구매자닉네임" });
+    const db = fakeDb({ userFindUnique });
+
+    const summaries = await listConversations(repo, db, SELLER_ID);
+
+    expect(summaries[0].otherNickname).toBe("구매자닉네임");
+    expect(userFindUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: BUYER_ID } }),
+    );
+  });
+});
+
+describe("listMessages", () => {
+  async function setupConversationWithMessage(repo: InMemoryChatRepo) {
+    const conversation = await repo.createConversation({
+      productId: PRODUCT_ID,
+      sellerId: SELLER_ID,
+      buyerId: BUYER_ID,
+      createdAt: new Date(),
+      lastMessageAt: new Date(),
+    });
+    await repo.insertMessage({
+      conversationId: conversation._id,
+      senderId: BUYER_ID,
+      kind: "text",
+      text: "안녕하세요",
+      masked: false,
+      createdAt: new Date(),
+    });
+    return conversation;
+  }
+
+  it("returns messages for a participant (buyer)", async () => {
+    const repo = new InMemoryChatRepo();
+    const conversation = await setupConversationWithMessage(repo);
+
+    const messages = await listMessages(repo, BUYER_ID, conversation._id);
+    expect(messages.length).toBe(1);
+    expect(messages[0].text).toBe("안녕하세요");
+  });
+
+  it("returns messages for a participant (seller)", async () => {
+    const repo = new InMemoryChatRepo();
+    const conversation = await setupConversationWithMessage(repo);
+
+    const messages = await listMessages(repo, SELLER_ID, conversation._id);
+    expect(messages.length).toBe(1);
+  });
+
+  it("rejects a non-participant (third user C) with FORBIDDEN 403 — participant isolation", async () => {
+    const repo = new InMemoryChatRepo();
+    const conversation = await setupConversationWithMessage(repo);
+
+    await expect(listMessages(repo, OTHER_ID, conversation._id)).rejects.toMatchObject({
+      code: "FORBIDDEN",
+      httpStatus: 403,
+    });
+  });
+
+  it("returns NOT_FOUND for a missing conversation", async () => {
+    const repo = new InMemoryChatRepo();
+    await expect(listMessages(repo, BUYER_ID, "nope")).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      httpStatus: 404,
+    });
+  });
+});
+
+describe("blockUser / unblockUser", () => {
+  it("blocks and unblocks a user", async () => {
+    const repo = new InMemoryChatRepo();
+
+    await blockUser(repo, BUYER_ID, SELLER_ID);
+    expect(await repo.isBlocked(BUYER_ID, SELLER_ID)).toBe(true);
+
+    await unblockUser(repo, BUYER_ID, SELLER_ID);
+    expect(await repo.isBlocked(BUYER_ID, SELLER_ID)).toBe(false);
+  });
+});
+
+describe("reportMessage / reportUser", () => {
+  it("reports a message with status open", async () => {
+    const repo = new InMemoryChatRepo();
+    const insertReportSpy = vi.spyOn(repo, "insertReport");
+
+    await reportMessage(repo, BUYER_ID, "message-1", "욕설");
+
+    expect(insertReportSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reporterId: BUYER_ID,
+        targetType: "message",
+        targetId: "message-1",
+        reason: "욕설",
+        status: "open",
+      }),
+    );
+  });
+
+  it("reports a user with status open", async () => {
+    const repo = new InMemoryChatRepo();
+    const insertReportSpy = vi.spyOn(repo, "insertReport");
+
+    await reportUser(repo, BUYER_ID, SELLER_ID, "사기 의심");
+
+    expect(insertReportSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reporterId: BUYER_ID,
+        targetType: "user",
+        targetId: SELLER_ID,
+        reason: "사기 의심",
+        status: "open",
+      }),
+    );
+  });
+});
