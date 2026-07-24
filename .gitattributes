@@ -1,0 +1,8 @@
+# 저장소는 LF로 정규화 — Windows에서도 CRLF 변환 경고 방지
+* text=auto eol=lf
+# 바이너리는 손대지 않음
+*.webp binary
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff2 binary
