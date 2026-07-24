@@ -325,7 +325,10 @@ export function ProductDetail({ product, isOwner }: { product: ProductDetailView
                   <Field label={tc("composeTitle")}>
                     <textarea
                       value={firstText}
-                      onChange={(e) => setFirstText(e.target.value)}
+                      onChange={(e) => {
+                        setFirstText(e.target.value);
+                        setProfanityWarned(false); // 내용이 바뀌면 다시 검사한다
+                      }}
                       placeholder={tc("composePlaceholder")}
                       rows={3}
                       maxLength={1000}
@@ -339,7 +342,7 @@ export function ProductDetail({ product, isOwner }: { product: ProductDetailView
                   )}
                   <div className="flex gap-2">
                     <Button type="submit" disabled={chatSubmitting}>
-                      {profanityWarned ? tc("sendAnyway") : tc("send")}
+                      {profanityWarned ? tc("profanitySendAnyway") : tc("send")}
                     </Button>
                     <Button
                       type="button"

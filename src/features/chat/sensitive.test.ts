@@ -77,3 +77,26 @@ describe("계좌 뒤에 금액이 붙어 한 덩어리로 읽히는 경우", () 
     }
   });
 });
+
+describe("번호와 다른 숫자가 붙어 읽히는 경우 정확히 잘라낸다", () => {
+  it("계좌 뒤 금액은 번호에 섞이지 않는다(섞이면 조회가 엉뚱한 번호로 나간다)", () => {
+    const scan = scanSensitive("국민 110-234-567890 15000");
+    expect(scan.spans).toHaveLength(1);
+    expect(scan.spans[0]).toMatchObject({ kind: "account", digits: "110234567890" });
+  });
+
+  it("은행 이름이 없어도 계좌+금액 형태를 잡아낸다", () => {
+    const scan = scanSensitive("계좌 110-234-567890 15000원 보내주세요");
+    expect(scan.spans[0]).toMatchObject({ kind: "account", digits: "110234567890" });
+  });
+
+  it("가려진 욕설(*)을 사이에 끼워 넣어도 앞뒤 번호를 모두 잡는다", () => {
+    const scan = scanSensitive("010-1234-5678 ** 3333011234567");
+    expect(scan.spans.map((s) => s.digits)).toEqual(["01012345678", "3333011234567"]);
+  });
+
+  it("조각에 걸쳐 적은 우회 표기는 여전히 이어 붙여 잡는다", () => {
+    expect(scanSensitive("공일공 삼2사5 육칠팔구").hasPhone).toBe(true);
+    expect(scanSensitive("영1영-5O14-6@977").hasPhone).toBe(true);
+  });
+});

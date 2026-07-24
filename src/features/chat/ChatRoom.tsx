@@ -236,9 +236,12 @@ export function ChatRoom({
     if (loadingMore || !hasMore || loadingHistory || messages.length === 0) return;
     setLoadingMore(true);
     try {
-      const oldestCreatedAt = messages[0].createdAt;
+      // 커서는 시각 기준이라, 같은 밀리초에 저장된 메시지가 쪽 경계에 걸리면 통째로 건너뛴다.
+      // 1밀리초 뒤로 물려 잡아 그 시각을 다시 포함시키고, 이미 본 메시지는 아래에서 걸러낸다.
+      const oldest = new Date(messages[0].createdAt);
+      const cursor = new Date(oldest.getTime() + 1).toISOString();
       const res = await fetch(
-        `/api/chat/conversations/${conversationId}/messages?cursor=${encodeURIComponent(oldestCreatedAt)}`,
+        `/api/chat/conversations/${conversationId}/messages?cursor=${encodeURIComponent(cursor)}`,
       );
       if (!res.ok) {
         setHasMore(false);
@@ -249,7 +252,12 @@ export function ChatRoom({
         setHasMore(false);
         return;
       }
-      const olderOrdered = [...body.messages].reverse();
+      // 이미 화면에 있는 메시지는 걸러낸다(커서를 물려 잡았으므로 겹칠 수 있다).
+      const olderOrdered = [...body.messages].reverse().filter((m) => !seenIds.current.has(m._id));
+      if (olderOrdered.length === 0) {
+        setHasMore(false);
+        return;
+      }
       const container = scrollRef.current;
       const prevScrollHeight = container?.scrollHeight ?? 0;
       for (const m of olderOrdered) seenIds.current.add(m._id);

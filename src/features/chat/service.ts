@@ -402,7 +402,9 @@ export async function checkConversationNumber(
   // 커서는 시각 기준이라, 같은 밀리초에 저장된 메시지가 쪽 경계에 걸리면 건너뛸 수 있다.
   // 이미 본 id를 기억해 두고, 새로 나온 게 하나도 없을 때만 멈춘다.
   const seen = new Set<string>();
-  scan: for (;;) {
+  // 한 번의 확인이 대화 전체를 무한정 훑지 않도록 상한을 둔다(아주 긴 대화에서도 응답이 늦지 않게).
+  const MAX_PAGES = 25; // 200건 × 25 = 최근 5000건
+  scan: for (let page_i = 0; page_i < MAX_PAGES; page_i++) {
     const page = await repo.listMessages(conversationId, { limit: 200, cursor });
     let fresh = 0;
     for (const m of page) {
