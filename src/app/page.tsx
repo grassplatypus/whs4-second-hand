@@ -25,8 +25,12 @@ export default async function Home() {
   return (
     <main className="flex flex-1 flex-col">
       {/* 히어로 */}
-      <section className="border-b border-zinc-200 bg-gradient-to-b from-emerald-50 to-zinc-50 dark:border-zinc-800 dark:from-emerald-950/30 dark:to-zinc-950">
-        <div className="mx-auto flex max-w-5xl flex-col items-center gap-6 px-4 py-16 text-center sm:py-24">
+      <section
+        className="relative border-b border-zinc-200 bg-zinc-50 bg-cover bg-center dark:border-zinc-800 dark:bg-zinc-950"
+        style={{ backgroundImage: "url(/hero-bg.webp)" }}
+      >
+        <div className="absolute inset-0 bg-white/30 dark:bg-zinc-950/60" aria-hidden />
+        <div className="relative mx-auto flex max-w-5xl flex-col items-center gap-6 px-4 py-16 text-center sm:py-24">
           <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700 dark:bg-emerald-900/50 dark:text-emerald-300">
             {t("badge")}
           </span>
