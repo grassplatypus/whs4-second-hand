@@ -6,5 +6,5 @@ import type { PrismaClient } from "@prisma/client";
  */
 export type ProductDb = Pick<
   PrismaClient,
-  "product" | "productImage" | "user" | "$queryRaw" | "$queryRawUnsafe"
+  "product" | "productImage" | "user" | "escrow" | "$queryRaw" | "$queryRawUnsafe"
 >;

@@ -136,6 +136,10 @@ export function ChatRoom({
     seenIds.current.add(message._id);
     setMessages((prev) => [...prev, message]);
     scrollToBottom();
+    // 방을 보고 있는 동안 도착한 상대 메시지는 바로 읽음 처리한다.
+    if (!message.mine) {
+      void fetch(`/api/chat/conversations/${conversationId}/read`, { method: "POST" }).catch(() => {});
+    }
   }
 
   useEffect(() => {
@@ -158,6 +162,8 @@ export function ChatRoom({
           setMessages(ordered);
           setHasMore(body.messages.length >= HISTORY_LIMIT_HINT);
           scrollToBottom();
+          // 방을 열어봤으니 읽음으로 표시한다 — 목록의 안 읽은 수가 쌓이지 않게.
+          void fetch(`/api/chat/conversations/${conversationId}/read`, { method: "POST" }).catch(() => {});
         }
       } catch {
         if (!cancelled) setHistoryError(t("failed"));

@@ -688,7 +688,9 @@ describe("비속어 자동 감지(관리자 전용, 사용자에게는 조용히
     expect(forMessage).toHaveLength(1); // 자동 + 사용자 신고가 한 건으로
     expect(forMessage[0].auto).toBe(true);
     expect(forMessage[0].reportedBy).toContain(SELLER_ID);
-    expect(forMessage[0].reason).toBe("욕설/비방");
+    // 먼저 남은 자동 감지 사유를 지우지 않고 사용자 사유를 덧붙인다(증거 보존).
+    expect(forMessage[0].reason).toContain("자동 감지: 비속어");
+    expect(forMessage[0].reason).toContain("욕설/비방");
   });
 });
 

@@ -217,7 +217,10 @@ export class InMemoryChatRepo implements ChatRepo {
     );
     if (existing) {
       existing.reportedBy = [...new Set([...(existing.reportedBy ?? []), report.reporterId])];
-      existing.reason = report.reason; // 사용자가 고른 사유를 관리자에게 보여준다
+      // 기존 사유(자동 감지 포함)는 지우지 않고 덧붙인다 — 먼저 남은 증거를 덮어쓰지 못하게.
+      const reasons = new Set(existing.reason.split(" · ").filter(Boolean));
+      reasons.add(report.reason);
+      existing.reason = [...reasons].join(" · ");
       existing.snapshot = existing.snapshot ?? report.snapshot;
       return;
     }
@@ -406,18 +409,23 @@ export class MongoChatRepo implements ChatRepo {
 
   async mergeUserReport(report: NewReport): Promise<void> {
     const db = await getChatDb();
-    const res = await db.collection<Report>(COLLECTIONS.reports).updateOne(
-      { targetType: report.targetType, targetId: report.targetId, status: "open" },
-      {
-        $set: { reason: report.reason },
-        $addToSet: { reportedBy: report.reporterId },
-      },
-    );
-    if (res.matchedCount === 0) {
-      await db
-        .collection<Report>(COLLECTIONS.reports)
-        .insertOne({ _id: randomUUID(), ...report, reportedBy: [report.reporterId] });
+    const col = db.collection<Report>(COLLECTIONS.reports);
+    const existing = await col.findOne({
+      targetType: report.targetType,
+      targetId: report.targetId,
+      status: "open",
+    });
+    if (existing) {
+      // 기존 사유(자동 감지 포함)를 덮어쓰지 않고 합친다 — 먼저 남은 증거 보존.
+      const reasons = new Set((existing.reason ?? "").split(" · ").filter(Boolean));
+      reasons.add(report.reason);
+      await col.updateOne(
+        { _id: existing._id },
+        { $set: { reason: [...reasons].join(" · ") }, $addToSet: { reportedBy: report.reporterId } },
+      );
+      return;
     }
+    await col.insertOne({ _id: randomUUID(), ...report, reportedBy: [report.reporterId] });
   }
 
   async markRead(conversationId: string, userId: string, at: Date): Promise<void> {

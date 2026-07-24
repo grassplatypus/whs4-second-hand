@@ -42,7 +42,9 @@ export async function liftSuspension(db: AdminDb, adminId: string, targetId: str
 export async function forceDeleteProduct(db: AdminDb, adminId: string, productId: string): Promise<void> {
   const product = await db.product.findUnique({ where: { id: productId }, select: { deletedAt: true } });
   if (!product || product.deletedAt) throw notFound("상품을 찾을 수 없어요.");
-  await db.product.update({ where: { id: productId }, data: { deletedAt: new Date() } });
+  // 관리자가 내린 글이라는 표시를 남긴다 — 판매자가 스스로 되돌릴 수 없게.
+  const now = new Date();
+  await db.product.update({ where: { id: productId }, data: { deletedAt: now, forceDeletedAt: now } });
   await audit(db, adminId, "ADMIN_FORCE_DELETE", productId);
 }
 

@@ -49,6 +49,7 @@ function fakeDb(overrides: {
       create: overrides.productCreate ?? vi.fn().mockResolvedValue({ id: PRODUCT_ID }),
       update: overrides.productUpdate ?? vi.fn().mockResolvedValue({}),
     },
+    escrow: { count: vi.fn().mockResolvedValue(0) },
     productImage: {},
     $queryRaw: vi.fn(),
     $queryRawUnsafe: vi.fn(),

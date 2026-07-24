@@ -168,7 +168,7 @@ describe("ChatRoom", () => {
 
     await screen.findByText("안녕하세요 구매하고싶어요");
     const postCall = fetchMock.mock.calls.find(
-      ([, init]) => (init as RequestInit | undefined)?.method === "POST",
+      ([u, init]) => (init as RequestInit | undefined)?.method === "POST" && !String(u).endsWith("/read"),
     );
     expect(JSON.parse((postCall![1] as RequestInit).body as string)).toEqual({
       kind: "text",
@@ -239,7 +239,7 @@ describe("ChatRoom", () => {
 
     expect(await screen.findByText(ko.chat.imagePreviewTitle)).toBeInTheDocument();
     // 아직 업로드/전송 요청이 나가지 않았다.
-    expect(fetchMock.mock.calls.filter(([, i]) => (i as RequestInit | undefined)?.method === "POST")).toHaveLength(0);
+    expect(fetchMock.mock.calls.filter(([u, i]) => (i as RequestInit | undefined)?.method === "POST" && !String(u).endsWith("/read"))).toHaveLength(0);
 
     await user.click(screen.getByRole("button", { name: ko.chat.cancel }));
     expect(screen.queryByText(ko.chat.imagePreviewTitle)).not.toBeInTheDocument();
@@ -252,6 +252,7 @@ describe("ChatRoom", () => {
       vi.fn(async (_url: unknown, init?: RequestInit) => {
         const method = (init?.method ?? "GET").toUpperCase();
         if (method === "GET") return { ok: true, json: async () => ({ messages: [] }) };
+        if (String(_url).endsWith("/read")) return { ok: true, json: async () => ({ ok: true }) };
         posts.push(JSON.parse(init!.body as string));
         return { ok: true, json: async () => ({ message: { _id: "m9", conversationId: "c1", kind: "text", text: "***", mine: true, masked: true, createdAt: new Date().toISOString() } }) };
       }),
@@ -280,6 +281,7 @@ describe("ChatRoom", () => {
         if (u.includes("/messages") && (init?.method ?? "GET") === "GET") {
           return { ok: true, json: async () => ({ messages: [] }) };
         }
+        if (u.endsWith("/read")) return { ok: true, json: async () => ({ ok: true }) };
         calls.push({ url: u, body: init?.body ? JSON.parse(init.body as string) : undefined });
         return { ok: true, json: async () => ({ ok: true }) };
       }),
@@ -352,6 +354,8 @@ describe("ChatRoom", () => {
 
     await screen.findByText("풀숲여우");
     // 소켓을 전혀 열지 않으므로 fetch만으로 히스토리 로드가 끝난다 — 별도 소켓 목이 필요 없다는 것 자체가 증거.
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    // 히스토리 조회 1회 + 읽음 표시 1회. 소켓은 열지 않는다(그래서 소켓 목이 필요 없다).
+    await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(1));
+    expect(fetchMock.mock.calls.every(([u]) => String(u).startsWith("/api/"))).toBe(true);
   });
 });

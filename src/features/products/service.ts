@@ -192,9 +192,19 @@ export async function updateProduct(
   await db.product.update({ where: { id }, data });
 }
 
-/** 상품 삭제(soft delete) — 공개 노출에서 "숨기기"와 같은 동작이다. 소유권 확인 후 deletedAt만 세팅한다. */
+/**
+ * 상품 삭제(soft delete) — 공개 노출에서 "숨기기"와 같은 동작이다. 소유권 확인 후 deletedAt만 세팅한다.
+ * 단, 진행 중인 안전거래가 걸려 있으면 막는다 — 숨겨 버리면 상품이 예약 상태로 묶인 채
+ * 상대가 거래를 끝낼 수 없고, 구매 이력에서도 사라진다.
+ */
 export async function deleteProduct(db: ProductDb, sellerId: string, id: string): Promise<void> {
   await assertOwner(db, id, sellerId);
+  const ongoing = await db.escrow.count({
+    where: { productId: id, status: { in: ["REQUESTED", "ACCEPTED", "FUNDED", "DISPUTED"] } },
+  });
+  if (ongoing > 0) {
+    throw new AppError("PRODUCT_IN_ESCROW", "진행 중인 안전거래가 있어 지금은 숨길 수 없어요.", 409);
+  }
   await db.product.update({ where: { id }, data: { deletedAt: new Date() } });
 }
 
@@ -208,9 +218,16 @@ async function assertOwnerAnyState(db: ProductDb, id: string, userId: string): P
   if (product.sellerId !== userId) throw forbidden();
 }
 
-/** 숨긴(soft-deleted) 상품을 되돌린다 — deletedAt을 지워 다시 공개 목록/상세에 나타나게 한다. */
+/**
+ * 숨긴 상품을 되돌린다 — deletedAt을 지워 다시 공개 목록/상세에 나타나게 한다.
+ * 관리자가 내린 글(forceDeletedAt)은 판매자가 되돌릴 수 없다 — 그러면 제재가 무의미해진다.
+ */
 export async function restoreProduct(db: ProductDb, sellerId: string, id: string): Promise<void> {
   await assertOwnerAnyState(db, id, sellerId);
+  const product = await db.product.findUnique({ where: { id }, select: { forceDeletedAt: true } });
+  if (product?.forceDeletedAt) {
+    throw new AppError("FORCE_DELETED", "관리자가 내린 글이라 되돌릴 수 없어요.", 403);
+  }
   await db.product.update({ where: { id }, data: { deletedAt: null } });
 }
 
