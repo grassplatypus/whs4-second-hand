@@ -41,6 +41,10 @@ export interface Report {
   snapshot?: string;
   createdAt: Date;
   status: ReportStatus;
+  /** 시스템이 비속어를 감지해 자동으로 올린 건(사용자에게는 알리지 않는다). */
+  auto?: boolean;
+  /** 사용자 신고가 합쳐진 경우 그 신고자들 — 관리자 화면에서 한 건으로 보이게 한다. */
+  reportedBy?: string[];
 }
 
 export interface ListReportsOptions {
@@ -79,6 +83,14 @@ export interface ChatRepo {
   block(blockerId: string, blockedId: string): Promise<void>;
   unblock(blockerId: string, blockedId: string): Promise<void>;
   insertReport(report: NewReport): Promise<void>;
+  /**
+   * 같은 대상(메시지)에 대한 신고를 한 건으로 유지한다.
+   * - 자동 감지(auto)든 사용자 신고든 대상이 같으면 하나의 레코드로 합친다.
+   * - 사용자가 신고하면 reportedBy에 추가하고 사유를 갱신한다(관리자 화면에 중복 노출 방지).
+   */
+  upsertAutoReport(report: NewReport): Promise<void>;
+  /** 사용자 신고를 기존(자동 포함) 신고와 합친다. 합칠 대상이 없으면 새로 만든다. */
+  mergeUserReport(report: NewReport): Promise<void>;
   /** 관리자 신고 관리(#6)용 — open 우선·최신순 목록. */
   listReports(opts?: ListReportsOptions): Promise<Report[]>;
   /** 관리자 대시보드용 — 상태별 신고 수(문서를 메모리에 올리지 않고 카운트만). */
@@ -166,6 +178,31 @@ export class InMemoryChatRepo implements ChatRepo {
 
   async insertReport(report: NewReport): Promise<void> {
     this.reports.push({ _id: randomUUID(), ...report });
+  }
+
+  async upsertAutoReport(report: NewReport): Promise<void> {
+    const existing = this.reports.find(
+      (r) => r.targetType === report.targetType && r.targetId === report.targetId && r.status === "open",
+    );
+    if (existing) {
+      existing.auto = true;
+      existing.snapshot = existing.snapshot ?? report.snapshot;
+      return;
+    }
+    this.reports.push({ _id: randomUUID(), ...report, auto: true });
+  }
+
+  async mergeUserReport(report: NewReport): Promise<void> {
+    const existing = this.reports.find(
+      (r) => r.targetType === report.targetType && r.targetId === report.targetId && r.status === "open",
+    );
+    if (existing) {
+      existing.reportedBy = [...new Set([...(existing.reportedBy ?? []), report.reporterId])];
+      existing.reason = report.reason; // 사용자가 고른 사유를 관리자에게 보여준다
+      existing.snapshot = existing.snapshot ?? report.snapshot;
+      return;
+    }
+    this.reports.push({ _id: randomUUID(), ...report, reportedBy: [report.reporterId] });
   }
 
   async listReports(opts?: ListReportsOptions): Promise<Report[]> {
@@ -291,6 +328,34 @@ export class MongoChatRepo implements ChatRepo {
     const db = await getChatDb();
     const doc: Report = { _id: randomUUID(), ...report };
     await db.collection<Report>(COLLECTIONS.reports).insertOne(doc);
+  }
+
+  async upsertAutoReport(report: NewReport): Promise<void> {
+    const db = await getChatDb();
+    await db.collection<Report>(COLLECTIONS.reports).updateOne(
+      { targetType: report.targetType, targetId: report.targetId, status: "open" },
+      {
+        $set: { auto: true },
+        $setOnInsert: { _id: randomUUID(), ...report, auto: true },
+      },
+      { upsert: true },
+    );
+  }
+
+  async mergeUserReport(report: NewReport): Promise<void> {
+    const db = await getChatDb();
+    const res = await db.collection<Report>(COLLECTIONS.reports).updateOne(
+      { targetType: report.targetType, targetId: report.targetId, status: "open" },
+      {
+        $set: { reason: report.reason },
+        $addToSet: { reportedBy: report.reporterId },
+      },
+    );
+    if (res.matchedCount === 0) {
+      await db
+        .collection<Report>(COLLECTIONS.reports)
+        .insertOne({ _id: randomUUID(), ...report, reportedBy: [report.reporterId] });
+    }
   }
 
   async listReports(opts?: ListReportsOptions): Promise<Report[]> {

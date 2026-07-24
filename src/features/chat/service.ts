@@ -87,9 +87,7 @@ export async function startConversation(
 
   if (await isEitherBlocked(repo, product.sellerId, buyerId)) throw blocked();
 
-  if (!firstText.trim()) {
-    throw new AppError("EMPTY_MESSAGE", "메시지를 입력해 주세요.", 400);
-  }
+  const firstTextValidated = assertValidText(firstText);
 
   let conversation = await repo.findConversationByProduct(productId, buyerId);
   const now = new Date();
@@ -103,17 +101,18 @@ export async function startConversation(
     });
   }
 
-  const { masked, hit } = maskProfanity(firstText);
+  const { masked, hit } = maskProfanity(firstTextValidated);
   const message = await repo.insertMessage({
     conversationId: conversation._id,
     senderId: buyerId,
     kind: "text",
     text: masked,
-    rawText: firstText,
+    rawText: firstTextValidated,
     masked: hit,
     createdAt: now,
   });
   await repo.updateLastMessageAt(conversation._id, now);
+  if (hit) await flagProfanityForAdmin(repo, message);
 
   return { conversationId: conversation._id, message: toDelivered(message) };
 }
@@ -122,6 +121,52 @@ export interface SendMessageInput {
   kind: "text" | "image";
   text?: string;
   imagePath?: string;
+}
+
+/** 업로드 파이프라인이 만든 경로 형태만 허용 — 임의 문자열이 저장·서빙되는 걸 구조적으로 막는다. */
+const IMAGE_PATH_PATTERN = /^products\/[0-9a-f-]{36}\.webp$/;
+/** 메시지 텍스트 상한 — 무제한 저장(자원 남용) 방지. */
+const MAX_TEXT_LENGTH = 1000;
+
+function assertValidImagePath(path: string | undefined): asserts path is string {
+  if (typeof path !== "string" || path.length > 200 || !IMAGE_PATH_PATTERN.test(path)) {
+    throw new AppError("INVALID_IMAGE", "이미지를 다시 올려 주세요.", 400);
+  }
+}
+
+/** 빈 값·상한 초과를 서버에서 최종 확인한다(클라 검증은 우회될 수 있다). */
+function assertValidText(raw: string): string {
+  const text = raw.trim();
+  if (!text) throw new AppError("EMPTY_MESSAGE", "메시지를 입력해 주세요.", 400);
+  if (text.length > MAX_TEXT_LENGTH) {
+    throw new AppError("TEXT_TOO_LONG", `메시지는 ${MAX_TEXT_LENGTH}자까지 보낼 수 있어요.`, 400);
+  }
+  return text;
+}
+
+/** 신고 사유(선택한 사유 + 선택적 상세)도 서버에서 길이를 확인한다. */
+function assertValidReason(raw: string): string {
+  const reason = typeof raw === "string" ? raw.trim() : "";
+  if (!reason) throw new AppError("INVALID_INPUT", "신고 사유를 골라 주세요.", 400);
+  if (reason.length > 500) throw new AppError("INVALID_INPUT", "신고 사유가 너무 길어요.", 400);
+  return reason;
+}
+
+/**
+ * 비속어가 감지되면 관리자에게 조용히 알린다 — 보낸 사람에게는 아무 표시도 하지 않는다.
+ * 나중에 같은 메시지를 사용자가 신고하면 messageId로 합쳐져 관리자 화면에 한 건으로 보인다.
+ */
+async function flagProfanityForAdmin(repo: ChatRepo, message: { _id: string; senderId: string; rawText?: string; text?: string }): Promise<void> {
+  await repo.upsertAutoReport({
+    reporterId: "system",
+    targetType: "message",
+    targetId: message._id,
+    reason: "자동 감지: 비속어",
+    snapshot: message.rawText ?? message.text,
+    createdAt: new Date(),
+    status: "open",
+    auto: true,
+  });
 }
 
 /**
@@ -150,6 +195,7 @@ export async function sendMessage(
     if (!(await repo.hasMessageFrom(conversationId, other))) {
       throw new AppError("IMAGE_BEFORE_REPLY", "상대가 답하기 전에는 사진을 보낼 수 없어요.", 400);
     }
+    assertValidImagePath(input.imagePath);
     const message = await repo.insertMessage({
       conversationId,
       senderId,
@@ -162,10 +208,7 @@ export async function sendMessage(
     return toDelivered(message);
   }
 
-  const rawText = input.text ?? "";
-  if (!rawText.trim()) {
-    throw new AppError("EMPTY_MESSAGE", "메시지를 입력해 주세요.", 400);
-  }
+  const rawText = assertValidText(input.text ?? "");
 
   const { masked, hit } = maskProfanity(rawText);
   const message = await repo.insertMessage({
@@ -178,6 +221,8 @@ export async function sendMessage(
     createdAt: now,
   });
   await repo.updateLastMessageAt(conversationId, now);
+  // 비속어면 관리자에게만 조용히 기록한다(보낸 사람에겐 알리지 않는다).
+  if (hit) await flagProfanityForAdmin(repo, message);
   return toDelivered(message);
 }
 
@@ -273,14 +318,21 @@ export async function reportMessage(
   messageId: string,
   reason: string,
 ): Promise<void> {
+  const cleanReason = assertValidReason(reason);
   const message = await repo.getMessage(messageId);
   if (!message) throw messageNotFound();
 
-  await repo.insertReport({
+  // 신고자는 그 메시지가 오간 대화의 참여자여야 한다 — 아무 메시지나 id로 신고하는 걸 막는다.
+  const conversation = await repo.getConversation(message.conversationId);
+  if (!conversation) throw messageNotFound();
+  assertParticipant(conversation, reporterId);
+
+  // 자동 감지(비속어)로 이미 올라온 건이 있으면 합쳐서 관리자 화면에 한 건으로 보이게 한다.
+  await repo.mergeUserReport({
     reporterId,
     targetType: "message",
     targetId: messageId,
-    reason,
+    reason: cleanReason,
     snapshot: message.rawText ?? message.text,
     createdAt: new Date(),
     status: "open",
@@ -293,11 +345,12 @@ export async function reportUser(
   targetUserId: string,
   reason: string,
 ): Promise<void> {
-  await repo.insertReport({
+  const cleanReason = assertValidReason(reason);
+  await repo.mergeUserReport({
     reporterId,
     targetType: "user",
     targetId: targetUserId,
-    reason,
+    reason: cleanReason,
     createdAt: new Date(),
     status: "open",
   });

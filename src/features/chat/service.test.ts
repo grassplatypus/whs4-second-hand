@@ -175,7 +175,7 @@ describe("sendMessage", () => {
     const conversation = await setupConversation(repo);
 
     await expect(
-      sendMessage(repo, BUYER_ID, conversation._id, { kind: "image", imagePath: "img/1.png" }),
+      sendMessage(repo, BUYER_ID, conversation._id, { kind: "image", imagePath: "products/11111111-2222-3333-4444-555555555555.webp" }),
     ).rejects.toMatchObject({ code: "IMAGE_BEFORE_REPLY", httpStatus: 400 });
 
     const messages = await repo.listMessages(conversation._id);
@@ -191,7 +191,7 @@ describe("sendMessage", () => {
     await sendMessage(repo, BUYER_ID, conversation._id, { kind: "text", text: "아직 계신가요" });
 
     await expect(
-      sendMessage(repo, BUYER_ID, conversation._id, { kind: "image", imagePath: "img/1.png" }),
+      sendMessage(repo, BUYER_ID, conversation._id, { kind: "image", imagePath: "products/11111111-2222-3333-4444-555555555555.webp" }),
     ).rejects.toMatchObject({ code: "IMAGE_BEFORE_REPLY", httpStatus: 400 });
 
     const messages = await repo.listMessages(conversation._id);
@@ -207,11 +207,11 @@ describe("sendMessage", () => {
     await sendMessage(repo, SELLER_ID, conversation._id, { kind: "text", text: "네 안녕하세요" });
     const image = await sendMessage(repo, BUYER_ID, conversation._id, {
       kind: "image",
-      imagePath: "img/1.png",
+      imagePath: "products/11111111-2222-3333-4444-555555555555.webp",
     });
 
     expect(image.kind).toBe("image");
-    expect(image.imagePath).toBe("img/1.png");
+    expect(image.imagePath).toBe("products/11111111-2222-3333-4444-555555555555.webp");
 
     const updated = await repo.getConversation(conversation._id);
     expect(updated?.lastMessageAt.getTime()).toBeGreaterThanOrEqual(updated!.createdAt.getTime());
@@ -224,11 +224,11 @@ describe("sendMessage", () => {
     await sendMessage(repo, BUYER_ID, conversation._id, { kind: "text", text: "안녕하세요" });
     const image = await sendMessage(repo, SELLER_ID, conversation._id, {
       kind: "image",
-      imagePath: "img/1.png",
+      imagePath: "products/11111111-2222-3333-4444-555555555555.webp",
     });
 
     expect(image.kind).toBe("image");
-    expect(image.imagePath).toBe("img/1.png");
+    expect(image.imagePath).toBe("products/11111111-2222-3333-4444-555555555555.webp");
   });
 
   it("masks profanity in a text message (delivered text has no literal profanity)", async () => {
@@ -471,7 +471,7 @@ describe("reportMessage / reportUser", () => {
       masked: false,
       createdAt: new Date(),
     });
-    const insertReportSpy = vi.spyOn(repo, "insertReport");
+    const insertReportSpy = vi.spyOn(repo, "mergeUserReport");
 
     await reportMessage(repo, BUYER_ID, message._id, "욕설");
 
@@ -505,7 +505,7 @@ describe("reportMessage / reportUser", () => {
     expect(started.message.text).not.toContain("시발");
     expect(started.message.text).toContain("*");
 
-    const insertReportSpy = vi.spyOn(repo, "insertReport");
+    const insertReportSpy = vi.spyOn(repo, "mergeUserReport");
     await reportMessage(repo, SELLER_ID, started.message._id, "욕설 신고");
 
     expect(insertReportSpy).toHaveBeenCalledWith(
@@ -545,7 +545,7 @@ describe("reportMessage / reportUser", () => {
 
   it("reports a user with status open", async () => {
     const repo = new InMemoryChatRepo();
-    const insertReportSpy = vi.spyOn(repo, "insertReport");
+    const insertReportSpy = vi.spyOn(repo, "mergeUserReport");
 
     await reportUser(repo, BUYER_ID, SELLER_ID, "사기 의심");
 
@@ -571,7 +571,7 @@ describe("reportConversationCounterparty", () => {
       createdAt: new Date(),
       lastMessageAt: new Date(),
     });
-    const insertReportSpy = vi.spyOn(repo, "insertReport");
+    const insertReportSpy = vi.spyOn(repo, "mergeUserReport");
 
     await reportConversationCounterparty(repo, BUYER_ID, conversation._id, "사기 의심");
 
@@ -607,5 +607,81 @@ describe("reportConversationCounterparty", () => {
       code: "NOT_FOUND",
       httpStatus: 404,
     });
+  });
+});
+
+describe("입력 검증(서버단)", () => {
+  it("이미지 경로가 업로드 형식이 아니면 400 — 임의 문자열은 저장되지 않는다", async () => {
+    const repo = new InMemoryChatRepo();
+    const db = fakeDb({});
+    const { conversationId } = await startConversation(repo, db, BUYER_ID, PRODUCT_ID, "안녕하세요");
+    await sendMessage(repo, SELLER_ID, conversationId, { kind: "text", text: "네 안녕하세요" });
+
+    for (const bad of ["img/1.png", "../../etc/passwd", "products/not-a-uuid.webp", "", undefined]) {
+      await expect(
+        sendMessage(repo, BUYER_ID, conversationId, { kind: "image", imagePath: bad as string }),
+      ).rejects.toMatchObject({ code: "INVALID_IMAGE", httpStatus: 400 });
+    }
+  });
+
+  it("메시지가 1000자를 넘으면 400", async () => {
+    const repo = new InMemoryChatRepo();
+    const db = fakeDb({});
+    const { conversationId } = await startConversation(repo, db, BUYER_ID, PRODUCT_ID, "안녕하세요");
+    await expect(
+      sendMessage(repo, BUYER_ID, conversationId, { kind: "text", text: "가".repeat(1001) }),
+    ).rejects.toMatchObject({ code: "TEXT_TOO_LONG", httpStatus: 400 });
+  });
+
+  it("신고 사유가 비었거나 500자를 넘으면 400", async () => {
+    const repo = new InMemoryChatRepo();
+    await expect(reportUser(repo, BUYER_ID, SELLER_ID, "   ")).rejects.toMatchObject({ code: "INVALID_INPUT" });
+    await expect(reportUser(repo, BUYER_ID, SELLER_ID, "가".repeat(501))).rejects.toMatchObject({ code: "INVALID_INPUT" });
+  });
+
+  it("대화 참여자가 아니면 그 메시지를 신고할 수 없다(403)", async () => {
+    const repo = new InMemoryChatRepo();
+    const db = fakeDb({});
+    const { conversationId, message } = await startConversation(repo, db, BUYER_ID, PRODUCT_ID, "안녕하세요");
+    expect(conversationId).toBeTruthy();
+    await expect(reportMessage(repo, "third-party", message._id, "욕설/비방")).rejects.toMatchObject({
+      code: "FORBIDDEN",
+      httpStatus: 403,
+    });
+  });
+});
+
+describe("비속어 자동 감지(관리자 전용, 사용자에게는 조용히)", () => {
+  it("비속어 메시지는 관리자용 자동 신고가 남고, 발신자 응답에는 아무 표시도 없다", async () => {
+    const repo = new InMemoryChatRepo();
+    const db = fakeDb({});
+    const { conversationId } = await startConversation(repo, db, BUYER_ID, PRODUCT_ID, "안녕하세요");
+
+    const delivered = await sendMessage(repo, BUYER_ID, conversationId, { kind: "text", text: "야 이 시발" });
+    // 전달본은 마스킹되고, 자동 감지 사실은 응답 어디에도 없다.
+    expect(delivered.text).not.toContain("시발");
+    expect(JSON.stringify(delivered)).not.toContain("자동 감지");
+
+    const reports = await repo.listReports({ status: "open" });
+    const auto = reports.find((r) => r.auto);
+    expect(auto).toBeTruthy();
+    expect(auto!.reason).toBe("자동 감지: 비속어");
+    expect(auto!.snapshot).toContain("시발"); // 관리자 증거는 원문
+  });
+
+  it("같은 메시지를 사용자가 신고하면 자동 건과 하나로 합쳐진다(중복 노출 없음)", async () => {
+    const repo = new InMemoryChatRepo();
+    const db = fakeDb({});
+    const { conversationId } = await startConversation(repo, db, BUYER_ID, PRODUCT_ID, "안녕하세요");
+    const bad = await sendMessage(repo, BUYER_ID, conversationId, { kind: "text", text: "야 이 시발" });
+
+    await reportMessage(repo, SELLER_ID, bad._id, "욕설/비방");
+
+    const reports = await repo.listReports({ status: "open" });
+    const forMessage = reports.filter((r) => r.targetType === "message" && r.targetId === bad._id);
+    expect(forMessage).toHaveLength(1); // 자동 + 사용자 신고가 한 건으로
+    expect(forMessage[0].auto).toBe(true);
+    expect(forMessage[0].reportedBy).toContain(SELLER_ID);
+    expect(forMessage[0].reason).toBe("욕설/비방");
   });
 });
