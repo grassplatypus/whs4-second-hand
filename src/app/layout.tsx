@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
+import { NavBar } from "@/features/shell/NavBar";
+import { getSessionUser } from "@/features/shell/getSessionUser";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -26,14 +28,16 @@ export default async function RootLayout({
 }>) {
   const locale = await getLocale();
   const messages = await getMessages();
+  const user = await getSessionUser();
 
   return (
     <html
       lang={locale}
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
+      <body className="min-h-full flex flex-col bg-zinc-50 dark:bg-zinc-950">
         <NextIntlClientProvider locale={locale} messages={messages}>
+          <NavBar user={user} />
           {children}
         </NextIntlClientProvider>
       </body>

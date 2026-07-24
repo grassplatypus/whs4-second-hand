@@ -1,4 +1,29 @@
 {
+  "nav": {
+    "brand": "Dongne Market",
+    "products": "Products",
+    "chat": "Chat",
+    "escrow": "Escrow",
+    "admin": "Admin",
+    "login": "Log in",
+    "register": "Sign up",
+    "logout": "Log out",
+    "menu": "Menu"
+  },
+  "home": {
+    "badge": "Local secondhand market",
+    "title": "Trade safely with neighbors nearby",
+    "subtitle": "Find items near you, arrange over chat, and protect payments with escrow.",
+    "ctaBrowse": "Browse products",
+    "ctaSell": "List an item",
+    "ctaStart": "Get started",
+    "recent": "Recently listed",
+    "seeAll": "See all",
+    "empty": "No products yet. Be the first to list one!",
+    "featLocation": { "icon": "📍", "title": "Neighborhood-based", "desc": "Find items within your radius. Your exact location is never exposed." },
+    "featEscrow": { "icon": "🛡️", "title": "Safe escrow", "desc": "Funds are held until you receive the item, then released. No scams." },
+    "featChat": { "icon": "💬", "title": "Real-time chat", "desc": "Talk to sellers directly, with profanity filtering, blocking and reporting." }
+  },
   "common": {
     "suspended": "Your account has been suspended. Please contact support.",
     "forbidden": "You don't have permission for that."
