@@ -19,6 +19,7 @@ const META = { ip: null, ua: null };
 
 function fakeDb(overrides: {
   userFindUnique?: ReturnType<typeof vi.fn>;
+  userFindFirst?: ReturnType<typeof vi.fn>;
   userUpdate?: ReturnType<typeof vi.fn>;
   sessionUpdateMany?: ReturnType<typeof vi.fn>;
   authAuditLogCreate?: ReturnType<typeof vi.fn>;
@@ -26,6 +27,7 @@ function fakeDb(overrides: {
   return {
     user: {
       findUnique: overrides.userFindUnique ?? vi.fn().mockResolvedValue({ passwordHash: null }),
+      findFirst: overrides.userFindFirst ?? vi.fn().mockResolvedValue(null),
       update: overrides.userUpdate ?? vi.fn().mockResolvedValue({}),
     },
     session: {
@@ -173,8 +175,39 @@ describe("changeNickname", () => {
     expect(auditCreate.mock.calls[0][0].data.event).toBe("NICKNAME_CHANGED");
   });
 
-  it("maps a P2002 nickname collision to 409 NICKNAME_TAKEN", async () => {
+  it("rejects a duplicate nickname via the pre-update read-check, without touching update", async () => {
+    const findFirst = vi.fn().mockResolvedValue({ id: "other" });
+    const update = vi.fn();
+    const auditCreate = vi.fn();
+    const db = fakeDb({ userFindFirst: findFirst, userUpdate: update, authAuditLogCreate: auditCreate });
+
+    await expect(changeNickname(db, USER_ID, "이미있음", META)).rejects.toMatchObject({
+      code: "NICKNAME_TAKEN",
+      httpStatus: 409,
+    });
+    expect(findFirst.mock.calls[0][0].where).toEqual({ nickname: "이미있음", id: { not: USER_ID } });
+    expect(update).not.toHaveBeenCalled();
+    expect(auditCreate).not.toHaveBeenCalled();
+  });
+
+  it("maps a concurrent P2002 nickname collision (documented meta.target shape) to 409 NICKNAME_TAKEN", async () => {
     const update = vi.fn().mockRejectedValue({ code: "P2002", meta: { target: ["nickname"] } });
+    const auditCreate = vi.fn();
+    const db = fakeDb({ userUpdate: update, authAuditLogCreate: auditCreate });
+
+    await expect(changeNickname(db, USER_ID, "이미있음", META)).rejects.toMatchObject({
+      code: "NICKNAME_TAKEN",
+      httpStatus: 409,
+    });
+    expect(auditCreate).not.toHaveBeenCalled();
+  });
+
+  it("maps a concurrent P2002 nickname collision (real @prisma/adapter-pg shape) to 409 NICKNAME_TAKEN", async () => {
+    // 읽기 체크 통과 직후(TOCTOU) 다른 요청이 먼저 update를 커밋한 경합 케이스.
+    const update = vi.fn().mockRejectedValue({
+      code: "P2002",
+      meta: { modelName: "User", driverAdapterError: { cause: { constraint: "User_nickname_key" } } },
+    });
     const auditCreate = vi.fn();
     const db = fakeDb({ userUpdate: update, authAuditLogCreate: auditCreate });
 

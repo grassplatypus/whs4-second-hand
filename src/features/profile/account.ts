@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AppError } from "@/features/_shared/error";
+import { uniqueViolationOn } from "@/features/_shared/prisma-error";
 import { hashPassword, verifyPassword, dummyVerify } from "@/features/auth/password";
 import { AUTH_EVENTS, logAuthEvent, type RequestMeta } from "@/features/auth/audit";
 import type { AuthDb } from "@/features/auth/db";
@@ -8,18 +9,6 @@ import { assertWithdrawable, defaultWithdrawGuard, type WithdrawGuard } from "./
 // register.ts의 registerSchema와 같은 제약(비번 8~72바이트, 닉네임 2~20 trim)을 그대로 미러링한다.
 export const passwordSchema = z.string().min(8).max(72);
 export const nicknameSchema = z.string().trim().min(2).max(20);
-
-/**
- * Prisma의 P2002(고유 제약 위반)를 구조적으로 감지한다. register.ts와 동일한 패턴 —
- * 무거운 PrismaClientKnownRequestError를 import하지 않아 목 객체로도 테스트 가능하다.
- */
-function isUniqueConstraintViolationOn(err: unknown, column: string): boolean {
-  if (typeof err !== "object" || err === null) return false;
-  const code = (err as { code?: unknown }).code;
-  if (code !== "P2002") return false;
-  const target = (err as { meta?: { target?: unknown } }).meta?.target;
-  return Array.isArray(target) && target.includes(column);
-}
 
 function invalidPassword(): AppError {
   return new AppError("INVALID_INPUT", "비밀번호는 8자 이상 72자 이하로 입력해 주세요.", 400);
@@ -88,7 +77,10 @@ export async function changePassword(
   await logAuthEvent(db, AUTH_EVENTS.PASSWORD_CHANGED, userId, meta);
 }
 
-/** 닉네임 변경. 유니크 충돌은 409로 매핑한다. */
+/**
+ * 닉네임 변경. 대부분의 중복은 update 전 읽기 체크로 걸러 409를 던진다(방어적 이중화 —
+ * P2002 매핑에만 기대지 않는다). update와의 사이 경합(TOCTOU)은 P2002 캐치가 백스톱한다.
+ */
 export async function changeNickname(
   db: AuthDb,
   userId: string,
@@ -98,10 +90,18 @@ export async function changeNickname(
   const parsed = nicknameSchema.safeParse(nickname);
   if (!parsed.success) throw invalidNickname();
 
+  const taken = await db.user.findFirst({
+    where: { nickname: parsed.data, id: { not: userId } },
+    select: { id: true },
+  });
+  if (taken) {
+    throw new AppError("NICKNAME_TAKEN", "이미 쓰고 있는 닉네임이에요.", 409);
+  }
+
   try {
     await db.user.update({ where: { id: userId }, data: { nickname: parsed.data } });
   } catch (err) {
-    if (isUniqueConstraintViolationOn(err, "nickname")) {
+    if (uniqueViolationOn(err, "nickname")) {
       throw new AppError("NICKNAME_TAKEN", "이미 쓰고 있는 닉네임이에요.", 409);
     }
     throw err;

@@ -128,22 +128,15 @@ test("닉네임 변경은 step-up이 필요하고, 성공 시 반영된다", asy
   expect((await me.json()).nickname).toBe(newNickname);
 });
 
-test("중복 닉네임으로 변경 시도 → 409여야 하지만, 확인된 버그로 500이 난다(리포트, 미수정)", async ({ context }) => {
-  // 발견한 실 버그(src 수정은 이번 태스크 범위 밖 — 리포트만): account.ts의
-  // isUniqueConstraintViolationOn은 `err.meta?.target`이 컬럼명 배열이라고 가정한다
-  // (register.ts의 동명 헬퍼와 동일 패턴, 유닛테스트도 그 가정으로 P2002를 목킹한다).
-  // 그런데 이 저장소가 쓰는 @prisma/adapter-pg(드라이버 어댑터) 경로에서 실제 Prisma
-  // 7.8의 P2002 에러는 `meta: { modelName, driverAdapterError: DriverAdapterError {...} }`
-  // 형태고 `meta.target` 배열 자체가 없다(직접 psql+Prisma로 재현해 확인, util.inspect로
-  // 원본 에러 구조 캡처). 그래서 changeNickname은 실제 닉네임 충돌 시 409 NICKNAME_TAKEN으로
-  // 매핑하지 못하고 원본 PrismaClientKnownRequestError를 그대로 던져 500이 난다
-  // (register.ts의 create-경합 폴백도 같은 이유로 잠재적으로 같은 결함이 있으나, 그쪽은
-  // 가입 전 findFirst 사전조회로 보통 경로에서는 가려진다 — 동시가입 경합에서만 노출).
-  // 이 테스트는 "있어야 할" 동작(409)을 그대로 단언해 버그를 감추지 않는다 — test.fail()로
-  // "현재는 실패하는 게 맞다"만 표시하고, 통과(=버그가 사라짐)하면 오히려 이 테스트가 실패로
-  // 잡힌다.
-  test.fail();
-
+test("중복 닉네임으로 변경 시도 → 409 NICKNAME_TAKEN", async ({ context }) => {
+  // 과거 실 버그(수정 완료): account.ts의 P2002 감지 헬퍼가 `err.meta?.target`을
+  // 컬럼명 배열이라고 가정했다(register.ts의 동명 헬퍼와 동일 패턴). 그런데 이 저장소가
+  // 쓰는 @prisma/adapter-pg(드라이버 어댑터) 경로에서 실제 P2002 에러는 `meta.target`
+  // 배열이 없고 `meta.driverAdapterError.cause.constraint`(예: `User_nickname_key`)에
+  // 제약명이 실린다(직접 psql+Prisma로 재현 확인). 지금은 src/features/_shared/prisma-error.ts의
+  // uniqueViolationOn이 두 형태를 모두 인식하고, changeNickname도 update 전 read-check로
+  // 대부분의 중복을 먼저 409로 걸러낸다(P2002 매핑은 경합 상황의 백스톱). 이 테스트는 그
+  // 수정이 실제로 동작함을 확인한다.
   const idB = unique();
   const regB = await context.request.post("/api/auth/register", {
     data: {

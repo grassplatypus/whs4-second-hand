@@ -89,6 +89,30 @@ describe("registerUser", () => {
     });
   });
 
+  it("maps a concurrent P2002 nickname collision (real @prisma/adapter-pg shape) to 409 NICKNAME_TAKEN", async () => {
+    const create = vi.fn().mockRejectedValue({
+      code: "P2002",
+      meta: { modelName: "User", driverAdapterError: { cause: { constraint: "User_nickname_key" } } },
+    });
+    const db = fakeDb({ create });
+    await expect(registerUser(db, input, noMeta)).rejects.toMatchObject({
+      code: "NICKNAME_TAKEN",
+      httpStatus: 409,
+    });
+  });
+
+  it("maps a concurrent P2002 email collision (real @prisma/adapter-pg shape) to 409 EMAIL_TAKEN", async () => {
+    const create = vi.fn().mockRejectedValue({
+      code: "P2002",
+      meta: { modelName: "User", driverAdapterError: { cause: { constraint: "User_emailBlindIndex_key" } } },
+    });
+    const db = fakeDb({ create });
+    await expect(registerUser(db, input, noMeta)).rejects.toMatchObject({
+      code: "EMAIL_TAKEN",
+      httpStatus: 409,
+    });
+  });
+
   it("does not convert an unrelated create error into a 409", async () => {
     const create = vi.fn().mockRejectedValue(new Error("connection reset"));
     const db = fakeDb({ create });

@@ -1,21 +1,10 @@
 import { encryptPII, emailIndex, phoneIndex } from "@/features/_shared/crypto";
 import { AppError } from "@/features/_shared/error";
+import { uniqueViolationOn } from "@/features/_shared/prisma-error";
 import { hashPassword } from "./password";
 import { registerSchema, availabilitySchema } from "./schema";
 import { AUTH_EVENTS, logAuthEvent, type RequestMeta } from "./audit";
 import type { AuthDb } from "./db";
-
-/**
- * Prisma의 P2002(고유 제약 위반)를 구조적으로 감지한다.
- * 무거운 PrismaClientKnownRequestError를 import하지 않아 목 객체로도 테스트 가능하다.
- */
-function isUniqueConstraintViolationOn(err: unknown, column: string): boolean {
-  if (typeof err !== "object" || err === null) return false;
-  const code = (err as { code?: unknown }).code;
-  if (code !== "P2002") return false;
-  const target = (err as { meta?: { target?: unknown } }).meta?.target;
-  return Array.isArray(target) && target.includes(column);
-}
 
 function parseOrThrow<T>(schema: { safeParse: (v: unknown) => { success: boolean; data?: T } }, raw: unknown): T {
   const parsed = schema.safeParse(raw);
@@ -60,10 +49,10 @@ export async function registerUser(
     });
   } catch (err) {
     // 동시 가입 경합: 읽기 체크를 통과한 뒤 create에서 고유 제약에 걸린 경우.
-    if (isUniqueConstraintViolationOn(err, "nickname")) {
+    if (uniqueViolationOn(err, "nickname")) {
       throw new AppError("NICKNAME_TAKEN", "이미 쓰고 있는 닉네임이에요.", 409);
     }
-    if (isUniqueConstraintViolationOn(err, "emailBlindIndex")) {
+    if (uniqueViolationOn(err, "emailBlindIndex")) {
       throw new AppError("EMAIL_TAKEN", "이미 가입된 이메일이에요.", 409);
     }
     throw err;
