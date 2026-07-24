@@ -100,6 +100,18 @@ describe("createProduct", () => {
     await expect(createProduct(db, SELLER_ID, VALID_INPUT)).rejects.toMatchObject({ code: "NO_LOCATION" });
   });
 
+  it("throws NO_LOCATION (400) when the seller has lat set but lng null", async () => {
+    const userFindUnique = vi.fn().mockResolvedValue({ lat: 37.5, lng: null, regionCiphertext: null });
+    const productCreate = vi.fn();
+    const db = fakeDb({ userFindUnique, productCreate });
+
+    await expect(createProduct(db, SELLER_ID, VALID_INPUT)).rejects.toMatchObject({
+      code: "NO_LOCATION",
+      httpStatus: 400,
+    });
+    expect(productCreate).not.toHaveBeenCalled();
+  });
+
   it("snapshots the seller's (already-coarse) lat/lng onto the product — never a precise/derived value", async () => {
     const SELLER_LAT = 37.5;
     const SELLER_LNG = 127.03;
@@ -156,6 +168,28 @@ describe("createProduct", () => {
     const db = fakeDb({ userFindUnique });
 
     await expect(createProduct(db, SELLER_ID, { ...VALID_INPUT, title: "" })).rejects.toThrow();
+    expect(userFindUnique).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid input (empty title) as AppError INVALID_INPUT (400), not a raw ZodError", async () => {
+    const userFindUnique = vi.fn();
+    const db = fakeDb({ userFindUnique });
+
+    await expect(createProduct(db, SELLER_ID, { ...VALID_INPUT, title: "" })).rejects.toMatchObject({
+      code: "INVALID_INPUT",
+      httpStatus: 400,
+    });
+    expect(userFindUnique).not.toHaveBeenCalled();
+  });
+
+  it("rejects invalid input (negative price) as AppError INVALID_INPUT (400), not a raw ZodError", async () => {
+    const userFindUnique = vi.fn();
+    const db = fakeDb({ userFindUnique });
+
+    await expect(createProduct(db, SELLER_ID, { ...VALID_INPUT, price: -1 })).rejects.toMatchObject({
+      code: "INVALID_INPUT",
+      httpStatus: 400,
+    });
     expect(userFindUnique).not.toHaveBeenCalled();
   });
 });
@@ -313,6 +347,30 @@ describe("updateProduct", () => {
     const db = fakeDb({ productFindUnique, productUpdate });
 
     await expect(updateProduct(db, SELLER_ID, PRODUCT_ID, { title: "" })).rejects.toThrow();
+    expect(productUpdate).not.toHaveBeenCalled();
+  });
+
+  it("rejects an owner's invalid update input as AppError INVALID_INPUT (400), not a raw ZodError", async () => {
+    const productFindUnique = vi.fn().mockResolvedValue({ sellerId: SELLER_ID, deletedAt: null });
+    const productUpdate = vi.fn();
+    const db = fakeDb({ productFindUnique, productUpdate });
+
+    await expect(updateProduct(db, SELLER_ID, PRODUCT_ID, { title: "" })).rejects.toMatchObject({
+      code: "INVALID_INPUT",
+      httpStatus: 400,
+    });
+    expect(productUpdate).not.toHaveBeenCalled();
+  });
+
+  it("rejects an owner's invalid update input (negative price) as AppError INVALID_INPUT (400)", async () => {
+    const productFindUnique = vi.fn().mockResolvedValue({ sellerId: SELLER_ID, deletedAt: null });
+    const productUpdate = vi.fn();
+    const db = fakeDb({ productFindUnique, productUpdate });
+
+    await expect(updateProduct(db, SELLER_ID, PRODUCT_ID, { price: -1 })).rejects.toMatchObject({
+      code: "INVALID_INPUT",
+      httpStatus: 400,
+    });
     expect(productUpdate).not.toHaveBeenCalled();
   });
 });

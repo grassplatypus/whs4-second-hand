@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Prisma } from "@prisma/client";
 import { decryptPII } from "@/features/_shared/crypto";
 import { AppError } from "@/features/_shared/error";
 import { toChoseong } from "./choseong";
@@ -6,9 +7,13 @@ import type { ProductDb } from "./db";
 
 const CATEGORIES = ["DIGITAL", "APPLIANCE", "FURNITURE", "CLOTHING", "BOOK", "BEAUTY", "SPORTS", "ETC"] as const;
 
+function invalidInput(): AppError {
+  return new AppError("INVALID_INPUT", "입력한 내용을 다시 확인해 주세요.", 400);
+}
+
 export const productInputSchema = z.object({
   title: z.string().trim().min(1, "제목을 입력해 주세요.").max(40, "제목은 40자 이하로 적어 주세요."),
-  description: z.string().max(2000, "설명은 2000자 이하로 적어 주세요."),
+  description: z.string().trim().max(2000, "설명은 2000자 이하로 적어 주세요."),
   price: z.number().int("가격은 정수여야 해요.").min(0, "가격은 0원 이상이어야 해요."),
   category: z.enum(CATEGORIES),
   directPlace: z.string().trim().max(100).optional(),
@@ -68,7 +73,9 @@ export async function createProduct(
   sellerId: string,
   raw: unknown,
 ): Promise<{ id: string }> {
-  const input = productInputSchema.parse(raw);
+  const parsed = productInputSchema.safeParse(raw);
+  if (!parsed.success) throw invalidInput();
+  const input = parsed.data;
 
   const seller = await db.user.findUnique({
     where: { id: sellerId },
@@ -145,12 +152,19 @@ export async function updateProduct(
   raw: unknown,
 ): Promise<void> {
   await assertOwner(db, id, sellerId);
-  const input = productUpdateSchema.parse(raw);
+  const parsed = productUpdateSchema.safeParse(raw);
+  if (!parsed.success) throw invalidInput();
+  const input = parsed.data;
 
-  const data: Record<string, unknown> = { ...input };
+  const data: Prisma.ProductUpdateInput = {};
   if (input.title !== undefined) {
+    data.title = input.title;
     data.titleChoseong = toChoseong(input.title);
   }
+  if (input.description !== undefined) data.description = input.description;
+  if (input.price !== undefined) data.price = input.price;
+  if (input.category !== undefined) data.category = input.category;
+  if (input.directPlace !== undefined) data.directPlace = input.directPlace;
 
   await db.product.update({ where: { id }, data });
 }
