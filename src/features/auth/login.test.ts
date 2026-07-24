@@ -67,6 +67,28 @@ describe("loginUser", () => {
     await expect(loginUser(db, credentials, noMeta)).rejects.toMatchObject({ code: "AUTH_FAILED" });
   });
 
+  it("rejects a SUSPENDED account with 403 ACCOUNT_SUSPENDED after the password checks out, without creating a session or a 2FA challenge", async () => {
+    const db = await fakeDb({ ...(await activeUser()), role: "SUSPENDED" });
+    await expect(loginUser(db, credentials, noMeta)).rejects.toMatchObject({
+      code: "ACCOUNT_SUSPENDED",
+      httpStatus: 403,
+    });
+    expect(db.session.create).not.toHaveBeenCalled();
+  });
+
+  it("rejects a SUSPENDED account even when it also has 2FA enabled, still without issuing a challenge", async () => {
+    const db = await fakeDb({ ...(await activeUser()), role: "SUSPENDED", twoFactorMethod: "TOTP" });
+    await expect(loginUser(db, credentials, noMeta)).rejects.toMatchObject({ code: "ACCOUNT_SUSPENDED" });
+    expect(db.session.create).not.toHaveBeenCalled();
+  });
+
+  it("still returns the generic AUTH_FAILED (not ACCOUNT_SUSPENDED) for a wrong password on a suspended account — no account-existence oracle", async () => {
+    const db = await fakeDb({ ...(await activeUser()), role: "SUSPENDED" });
+    await expect(
+      loginUser(db, { ...credentials, password: "nope-nope-nope" }, noMeta),
+    ).rejects.toMatchObject({ code: "AUTH_FAILED", httpStatus: 401 });
+  });
+
   it("rejects an OAuth-only account (no local password)", async () => {
     const db = await fakeDb({ id: "u1", role: "USER", passwordHash: null, deletedAt: null });
     await expect(loginUser(db, credentials, noMeta)).rejects.toMatchObject({ code: "AUTH_FAILED" });

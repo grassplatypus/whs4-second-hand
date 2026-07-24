@@ -32,11 +32,12 @@ export async function loginOrRegisterWithOAuth(
 ): Promise<OAuthLoginResult> {
   const identity = await db.authIdentity.findUnique({
     where: { provider_providerUserId: { provider, providerUserId: info.providerUserId } },
-    select: { userId: true, user: { select: { id: true, deletedAt: true, twoFactorMethod: true } } },
+    select: { userId: true, user: { select: { id: true, role: true, deletedAt: true, twoFactorMethod: true } } },
   });
 
   if (identity) {
     if (identity.user.deletedAt) throw new AppError("AUTH_FAILED", "다시 로그인해 주세요.", 401);
+    if (identity.user.role === "SUSPENDED") throw new AppError("ACCOUNT_SUSPENDED", "계정이 정지되었어요.", 403);
     // 기존 신원 로그인 경로: 2FA가 켜진 계정이면 세션 대신 챌린지를 반환한다 — OAuth로 2FA를 우회하지 못하게 한다.
     if (identity.user.twoFactorMethod !== "NONE") {
       await logAuthEvent(db, AUTH_EVENTS.TWO_FACTOR_CHALLENGE, identity.userId, meta);

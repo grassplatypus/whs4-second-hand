@@ -87,6 +87,23 @@ describe("loginOrRegisterWithOAuth", () => {
     await expect(loginOrRegisterWithOAuth(db, "GOOGLE", info, meta)).rejects.toMatchObject({ code: "AUTH_FAILED" });
   });
 
+  it("rejects a SUSPENDED existing-identity login with 403 ACCOUNT_SUSPENDED, without creating a session", async () => {
+    const sessionCreate = vi.fn();
+    const db = baseDb({
+      authIdentity: {
+        findUnique: vi
+          .fn()
+          .mockResolvedValue({ userId: "u1", user: { id: "u1", role: "SUSPENDED", deletedAt: null, twoFactorMethod: "NONE" } }),
+      },
+      session: { create: sessionCreate },
+    });
+    await expect(loginOrRegisterWithOAuth(db, "GOOGLE", info, meta)).rejects.toMatchObject({
+      code: "ACCOUNT_SUSPENDED",
+      httpStatus: 403,
+    });
+    expect(sessionCreate).not.toHaveBeenCalled();
+  });
+
   it("maps a P2002 race on user.create to OAUTH_EMAIL_EXISTS", async () => {
     const create = vi.fn().mockRejectedValue({ code: "P2002" });
     const db = baseDb({
