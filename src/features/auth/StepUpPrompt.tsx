@@ -3,15 +3,15 @@
 import { useState } from "react";
 import { useTranslations } from "next-intl";
 
-type StepUpMethod = "password" | "totp";
+type StepUpMethod = "password" | "totp" | "email";
 
 /**
  * 민감 작업(2FA 해제, 소셜 연동 해제 등) 전 재인증. 성공하면 step_up 쿠키가 발급되고
  * onSuccess가 호출된다 — 호출자는 그 안에서 원래 하려던 작업을 재시도한다.
  *
- * 코드 검증은 항상 TOTP로 보낸다: STEP_UP 목적 이메일 코드는 발급 라우트가 없어(백엔드
- * 범위 밖) UI에서 실제로 받을 방법이 없다 — email을 선택지로 노출하면 항상 실패하는
- * 버튼이 된다. 향후 이메일 재발급 라우트가 추가되면 이 부분을 확장한다.
+ * password/totp 외에 email도 지원한다: 비번이 없는(OAuth-only) 계정, TOTP를 설정하지
+ * 않은 계정도 재인증할 수 있도록 "이메일로 코드 받기" 버튼이 `/api/auth/step-up/send-otp`로
+ * STEP_UP 목적 코드를 발송하고, 받은 코드를 같은 `/api/auth/step-up`에 `{method:"email", code}`로 보낸다.
  */
 export function StepUpPrompt({ onSuccess }: { onSuccess: () => void }) {
   const t = useTranslations("auth.twofactor");
@@ -20,6 +20,7 @@ export function StepUpPrompt({ onSuccess }: { onSuccess: () => void }) {
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -28,7 +29,7 @@ export function StepUpPrompt({ onSuccess }: { onSuccess: () => void }) {
 
     setSubmitting(true);
     try {
-      const body = method === "password" ? { method, password } : { method: "totp", code };
+      const body = method === "password" ? { method, password } : { method, code };
       const res = await fetch("/api/auth/step-up", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -41,6 +42,21 @@ export function StepUpPrompt({ onSuccess }: { onSuccess: () => void }) {
       setError(t("failed"));
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function sendEmailOtp() {
+    setError(null);
+    setEmailSent(false);
+    try {
+      const res = await fetch("/api/auth/step-up/send-otp", { method: "POST" });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ code: undefined }));
+        return setError(t(body.code === "OTP_TOO_SOON" ? "tooSoon" : "failed"));
+      }
+      setEmailSent(true);
+    } catch {
+      setError(t("failed"));
     }
   }
 
@@ -66,7 +82,28 @@ export function StepUpPrompt({ onSuccess }: { onSuccess: () => void }) {
         >
           {t("stepUpUseCode")}
         </button>
+        <button
+          type="button"
+          onClick={() => setMethod("email")}
+          aria-pressed={method === "email"}
+          className="rounded border px-2 py-1"
+        >
+          {t("stepUpUseEmail")}
+        </button>
       </div>
+
+      {method === "email" && (
+        <div className="flex flex-col gap-2">
+          <button type="button" onClick={sendEmailOtp} className="self-start text-sm text-blue-600">
+            {t("stepUpSendEmail")}
+          </button>
+          {emailSent && (
+            <p aria-live="polite" className="text-sm text-green-700">
+              {t("stepUpEmailSent")}
+            </p>
+          )}
+        </div>
+      )}
 
       <form onSubmit={submit} className="flex flex-col gap-3" noValidate>
         {method === "password" ? (

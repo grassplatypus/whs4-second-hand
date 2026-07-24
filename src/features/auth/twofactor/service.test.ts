@@ -11,6 +11,7 @@ import {
   verifyStepUpReauth,
   completeLoginTwoFactor,
   sendLoginOtp,
+  sendStepUpOtp,
 } from "./service";
 import { generateTotpSecret } from "./totp";
 import { encryptPII, decryptPII } from "@/features/_shared/crypto";
@@ -402,5 +403,42 @@ describe("sendLoginOtp", () => {
     expect(auditData.event).toBe("OTP_SENT");
     expect(auditData.ip).toBe("198.51.100.9");
     expect(auditData.ua).toBe("resend-agent/2.0");
+  });
+});
+
+describe("sendStepUpOtp", () => {
+  const originalMailer = new MemoryMailer();
+  beforeEach(() => setMailerForTest(originalMailer));
+  afterEach(() => setMailerForTest(null));
+
+  it("issues a STEP_UP email OTP to the decrypted account email", async () => {
+    const findUnique = vi.fn().mockResolvedValue({ emailCiphertext: encryptPII(ACCOUNT_EMAIL) });
+    const emailCreate = vi.fn().mockResolvedValue({ id: "otp1" });
+    const db = fakeDb({ findUnique, emailCreate });
+
+    await sendStepUpOtp(db, USER_ID, noMeta);
+
+    expect(emailCreate.mock.calls[0][0].data.purpose).toBe("STEP_UP");
+    expect(originalMailer.sent).toHaveLength(1);
+    expect(originalMailer.sent[0]!.to).toBe(ACCOUNT_EMAIL);
+  });
+
+  it("rejects an unknown user", async () => {
+    const db = fakeDb({ findUnique: vi.fn().mockResolvedValue(null) });
+    await expect(sendStepUpOtp(db, USER_ID, noMeta)).rejects.toMatchObject({ code: "AUTH_FAILED" });
+  });
+
+  it("carries the caller's meta (ip/ua) into the OTP_SENT audit row", async () => {
+    const findUnique = vi.fn().mockResolvedValue({ emailCiphertext: encryptPII(ACCOUNT_EMAIL) });
+    const auditCreate = vi.fn().mockResolvedValue({});
+    const db = fakeDb({ findUnique, auditCreate });
+    const meta = { ip: "203.0.113.7", ua: "step-up-agent/1.0" };
+
+    await sendStepUpOtp(db, USER_ID, meta);
+
+    const auditData = auditCreate.mock.calls[0][0].data;
+    expect(auditData.event).toBe("OTP_SENT");
+    expect(auditData.ip).toBe("203.0.113.7");
+    expect(auditData.ua).toBe("step-up-agent/1.0");
   });
 });

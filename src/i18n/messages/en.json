@@ -60,9 +60,12 @@
       "stepUpDescription": "For your security, please verify again",
       "stepUpUsePassword": "Verify with password",
       "stepUpUseCode": "Verify with code",
+      "stepUpUseEmail": "Verify with email",
       "stepUpPassword": "Password",
       "stepUpCode": "Verification code",
       "stepUpSubmit": "Confirm",
+      "stepUpSendEmail": "Send code by email",
+      "stepUpEmailSent": "Code sent",
       "failed": "Couldn't verify that. Please try again",
       "tooSoon": "Please try again in a bit",
       "stepUpRequired": "Please verify it's you"

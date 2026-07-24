@@ -161,3 +161,13 @@ export async function sendLoginOtp(db: AuthDb, userId: string, meta: RequestMeta
   // 발송 자체의 감사(OTP_SENT)는 issueEmailOtp가 남긴다 — 호출자의 ip/ua를 그대로 싣는다.
   await issueEmailOtp(db, userId, "LOGIN_2FA", getMailer(), accountEmail, meta);
 }
+
+/**
+ * step-up 재인증용 이메일 OTP 발송. 비번이 없는(OAuth-only) 계정이 password/totp step-up을 쓸 수 없을 때의
+ * 유일한 통로다 — sendLoginOtp와 대칭이지만 purpose가 STEP_UP.
+ */
+export async function sendStepUpOtp(db: AuthDb, userId: string, meta: RequestMeta): Promise<void> {
+  const accountEmail = await accountEmailOf(db, userId);
+  // 발송 자체의 감사(OTP_SENT)는 issueEmailOtp가 남긴다 — 호출자의 ip/ua를 그대로 싣는다.
+  await issueEmailOtp(db, userId, "STEP_UP", getMailer(), accountEmail, meta);
+}

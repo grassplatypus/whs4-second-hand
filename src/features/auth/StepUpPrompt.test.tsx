@@ -54,6 +54,42 @@ describe("StepUpPrompt", () => {
     await waitFor(() => expect(onSuccess).toHaveBeenCalled());
   });
 
+  it("sends an email OTP then submits the email method with the entered code", async () => {
+    const user = userEvent.setup();
+    renderIt();
+    await user.click(screen.getByRole("button", { name: ko.auth.twofactor.stepUpUseEmail }));
+    await user.click(screen.getByRole("button", { name: ko.auth.twofactor.stepUpSendEmail }));
+
+    await waitFor(() => {
+      const call = (globalThis.fetch as any).mock.calls[0];
+      expect(String(call[0])).toBe("/api/auth/step-up/send-otp");
+      expect(call[1].method).toBe("POST");
+    });
+    expect(await screen.findByText(ko.auth.twofactor.stepUpEmailSent)).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText(ko.auth.twofactor.stepUpCode), "654321");
+    await user.click(screen.getByRole("button", { name: ko.auth.twofactor.stepUpSubmit }));
+
+    await waitFor(() => {
+      const call = (globalThis.fetch as any).mock.calls[1];
+      expect(String(call[0])).toBe("/api/auth/step-up");
+      expect(JSON.parse(call[1].body)).toEqual({ method: "email", code: "654321" });
+    });
+  });
+
+  it("maps OTP_TOO_SOON on the send-email button to the tooSoon catalog string", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: false, status: 429, json: async () => ({ code: "OTP_TOO_SOON", message: "x" }) }),
+    );
+    const user = userEvent.setup();
+    renderIt();
+    await user.click(screen.getByRole("button", { name: ko.auth.twofactor.stepUpUseEmail }));
+    await user.click(screen.getByRole("button", { name: ko.auth.twofactor.stepUpSendEmail }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(ko.auth.twofactor.tooSoon);
+  });
+
   it("shows a generic catalog error and never the server message on failure", async () => {
     vi.stubGlobal(
       "fetch",
