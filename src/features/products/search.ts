@@ -209,8 +209,11 @@ export async function searchProducts(
   const outerWhere =
     outerConditions.length > 0 ? Prisma.sql`WHERE ${Prisma.join(outerConditions, " AND ")}` : Prisma.empty;
 
+  // 거리가 같으면 최신 글이 먼저다 — 같은 동네 글이 쌓이면 거리는 대부분 동률이라,
+  // 여기서 id 순으로 줄 세우면 새로 올린 글이 목록 뒤로 밀려 사실상 보이지 않는다.
+  // (id는 마지막 동률 처리용으로만 남긴다 — 쪽 넘김이 흔들리지 않게.)
   const orderBy = hasDistance
-    ? Prisma.sql`ORDER BY "distanceKm" ASC, "id" ASC`
+    ? Prisma.sql`ORDER BY "distanceKm" ASC, "createdAt" DESC, "id" DESC`
     : Prisma.sql`ORDER BY "createdAt" DESC, "id" DESC`;
 
   const fetchLimit = input.limit + 1;
