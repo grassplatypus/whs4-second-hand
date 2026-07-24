@@ -47,6 +47,16 @@ enum Category {
   ETC
 }
 
+enum EscrowStatus {
+  REQUESTED // 요청·조정(금액 제안 왕복)
+  ACCEPTED // 조정 완료(양측 금액 합의)
+  FUNDED // 보관(구매자 입금, 에스크로 보관 중)
+  RELEASED // 정산(판매자에게 대금 지급 — 거래 완료)
+  REFUNDED // 반환(구매자에게 대금 반환)
+  CANCELLED // 취소(입금 전 파기)
+  DISPUTED // 분쟁(관리자 조정 대기 — 처리 UI는 #6)
+}
+
 model User {
   id               String          @id @default(cuid())
   nickname         String          @unique
@@ -72,6 +82,8 @@ model User {
   emailOtps        EmailOtp[]
   phoneOtps        PhoneOtp[]
   products         Product[]
+  escrowsAsBuyer   Escrow[]        @relation("EscrowBuyer")
+  escrowsAsSeller  Escrow[]        @relation("EscrowSeller")
 
   @@index([phoneBlindIndex])
 }
@@ -156,6 +168,7 @@ model Product {
   regionLabel   String?
   directPlace   String?
   images        ProductImage[]
+  escrows       Escrow[]
   deletedAt     DateTime?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
@@ -173,4 +186,41 @@ model ProductImage {
   order     Int
 
   @@index([productId])
+}
+
+model Escrow {
+  id             String        @id @default(cuid())
+  productId      String
+  product        Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  buyerId        String
+  buyer          User          @relation("EscrowBuyer", fields: [buyerId], references: [id], onDelete: Cascade)
+  sellerId       String // 요청 시점 상품 판매자 스냅샷
+  seller         User          @relation("EscrowSeller", fields: [sellerId], references: [id], onDelete: Cascade)
+  amount         Int // 현재 제안/합의 금액(원)
+  status         EscrowStatus  @default(REQUESTED)
+  lastProposerId String // 조정: 마지막 금액 제안자(상대가 수락)
+  fundedAt       DateTime?
+  releasedAt     DateTime?
+  refundedAt     DateTime?
+  events         EscrowEvent[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([buyerId])
+  @@index([sellerId])
+  @@index([productId, status])
+}
+
+model EscrowEvent {
+  id        String        @id @default(cuid())
+  escrowId  String
+  escrow    Escrow        @relation(fields: [escrowId], references: [id], onDelete: Cascade)
+  actorId   String // 행위자(구매자/판매자/관리자)
+  from      EscrowStatus?
+  to        EscrowStatus
+  amount    Int? // 금액 조정·정산 시 기록
+  note      String?
+  createdAt DateTime      @default(now())
+
+  @@index([escrowId])
 }
