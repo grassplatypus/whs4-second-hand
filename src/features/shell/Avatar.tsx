@@ -8,7 +8,29 @@ function hash(s: string): number {
   return Math.abs(h);
 }
 
-export function Avatar({ nickname, size = 40 }: { nickname: string; size?: number }) {
+export function Avatar({
+  nickname,
+  size = 40,
+  src,
+}: {
+  nickname: string;
+  size?: number;
+  /** 업로드한 프로필 사진 경로(media). 없으면 닉네임 기반 이니셜 아바타로 폴백. */
+  src?: string | null;
+}) {
+  if (src) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={`/api/media/${src}`}
+        alt={nickname}
+        width={size}
+        height={size}
+        className="shrink-0 rounded-full object-cover"
+        style={{ width: size, height: size }}
+      />
+    );
+  }
   const h = hash(nickname);
   const hue = h % 360;
   const bg = `hsl(${hue} 65% 55%)`;
