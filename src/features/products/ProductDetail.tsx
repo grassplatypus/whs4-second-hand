@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { STATUS_TRANSITIONS, type Status } from "./categories";
+import { ImageGallery } from "./ImageGallery";
 
 /**
  * GET /api/products/[id]가 내려주는 안전 부분집합에서 좌표(lat/lng)를 뺀 화면 전용 모양이다.
@@ -183,19 +184,7 @@ export function ProductDetail({ product, isOwner }: { product: ProductDetailView
 
   return (
     <div className="flex w-full max-w-2xl flex-col gap-4">
-      {product.images.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {product.images.map((img) => (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              key={img.path}
-              src={`/api/media/${img.path}`}
-              alt={product.title}
-              className="h-40 w-40 rounded object-cover"
-            />
-          ))}
-        </div>
-      )}
+      <ImageGallery images={product.images} category={product.category} title={product.title} />
 
       <h1 className="text-xl font-semibold">{product.title}</h1>
       <p className="text-lg">{priceLabel}</p>

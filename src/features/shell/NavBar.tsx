@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
+import { Avatar } from "./Avatar";
 import type { SessionUser } from "./getSessionUser";
 
 const NAV = [
@@ -69,9 +70,16 @@ export function NavBar({ user }: { user: SessionUser | null }) {
                 </Link>
               )}
               <Link
-                href="/mypage"
-                className="hidden rounded-md px-3 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 sm:inline dark:text-zinc-300 dark:hover:bg-zinc-900"
+                href="/settings"
+                className="hidden rounded-md px-3 py-1.5 text-sm font-medium text-zinc-600 hover:bg-zinc-50 sm:inline dark:text-zinc-400 dark:hover:bg-zinc-900"
               >
+                {t("settings")}
+              </Link>
+              <Link
+                href="/mypage"
+                className="hidden items-center gap-1.5 rounded-md px-2 py-1.5 text-sm font-medium text-zinc-700 hover:bg-zinc-50 sm:inline-flex dark:text-zinc-300 dark:hover:bg-zinc-900"
+              >
+                <Avatar nickname={user.nickname} size={24} />
                 {user.nickname}
               </Link>
               <button
@@ -136,8 +144,12 @@ export function NavBar({ user }: { user: SessionUser | null }) {
                     {t("admin")}
                   </Link>
                 )}
-                <Link href="/mypage" onClick={() => setOpen(false)} className="rounded-md px-3 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                <Link href="/mypage" onClick={() => setOpen(false)} className="flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                  <Avatar nickname={user.nickname} size={22} />
                   {user.nickname}
+                </Link>
+                <Link href="/settings" onClick={() => setOpen(false)} className="rounded-md px-3 py-2 text-sm font-medium text-zinc-700 dark:text-zinc-300">
+                  {t("settings")}
                 </Link>
                 <button type="button" onClick={() => void logout()} disabled={loggingOut} className="rounded-md px-3 py-2 text-left text-sm font-medium text-zinc-700 disabled:opacity-50 dark:text-zinc-300">
                   {t("logout")}
