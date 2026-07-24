@@ -70,7 +70,7 @@ export interface SensitiveScan {
  * 공백·줄바꿈·별표는 여기 없다 — 그건 덩어리를 나누는 자리다(아래 참고).
  */
 const INNER_SEPARATORS = new Set([
-  "-", ".", ",", "/", "_", "#", "~", "(", ")", "[", "]", "{", "}", "'", '"',
+  "-", ".", "/", "_", "#", "(", ")", "[", "]", "{", "}", "'", '"',
   "·", "‑", "–", "—", "@", "+", ":", ";",
 ]);
 
@@ -91,6 +91,20 @@ interface Chunk {
   evasive: boolean;
   /** 이 덩어리와 다음 덩어리 사이에 다른 글자가 끼어 있었는가(끼어 있으면 합치지 않는다). */
   brokenAfter: boolean;
+  /** 다음 덩어리와의 사이에 하이픈 같은 구분자가 있었는가 — "3333 - 01 - 1234567"을 이어 붙이는 단서. */
+  separatorAfter: boolean;
+  /** 구분자로 나뉜 마디들의 길이 — "110-234-567890"이면 [3,3,6]. 가격 범위를 걸러내는 데 쓴다. */
+  groupSizes: number[];
+}
+
+/**
+ * 가격 범위를 번호로 오해하지 않게 한다.
+ *
+ * "15000-20000원"은 마디가 둘이고 둘 다 넉넉히 길다 — 실제 계좌·전화번호는 이렇게 안 쓴다
+ * (마디가 셋 이상이거나, 아예 구분자 없이 붙여 쓴다).
+ */
+function looksLikeNumberRange(groupSizes: number[]): boolean {
+  return groupSizes.length === 2 && groupSizes.every((n) => n >= 4);
 }
 
 /**
@@ -108,18 +122,21 @@ function hangulRunIsNumeric(text: string, from: number, to: number): boolean {
   return after < text.length && isRealDigit(text[after]!);
 }
 
+/** 한글 음절인가(수사가 낱말의 일부인지 보는 데 쓴다). */
+function isHangulSyllable(ch: string | undefined): boolean {
+  return ch !== undefined && ch >= "가" && ch <= "힣";
+}
+
 /**
- * 알파벳을 숫자로 읽어도 되는 자리인지 본다.
+ * 한글 수사 구간에서 **조사·어미로 보이는 끝 글자**를 떼어낸다.
  *
- * "5O14"의 O는 숫자 사이에 낀 한 글자라 0으로 읽는 게 맞지만,
- * "16GB"·"512GB"의 GB는 알파벳이 둘 이상 이어지므로 단위로 본다(상품 사양이 계좌로 둔갑하지 않게).
+ * "…오육칠팔이에요"의 '이'는 수사가 아니라 서술격 조사다. 이걸 2로 읽으면 번호에 없는 숫자가
+ * 하나 더 붙어, 사기 이력 조회가 엉뚱한 번호로 나간다. 구간 뒤에 곧바로 다른 한글이 붙어 있으면
+ * 마지막 한 글자는 낱말의 일부로 본다.
  */
-function alphaIsNumeric(text: string, index: number): boolean {
-  const isAlias = (i: number) => {
-    const ch = text[i];
-    return ch !== undefined && !isRealDigit(ch) && !HANGUL_NUMERALS.has(ch) && toDigit(ch) !== null;
-  };
-  return !isAlias(index - 1) && !isAlias(index + 1);
+function trimHangulTail(text: string, from: number, to: number): number {
+  if (to - from < 2) return to;
+  return isHangulSyllable(text[to]) ? to - 1 : to;
 }
 
 /** 원문을 훑어 숫자 덩어리들을 찾는다(덩어리 안에서만 숫자를 이어 붙인다). */
@@ -129,17 +146,40 @@ function scanChunks(text: string): Chunk[] {
   let digits = "";
   let lastIdx = -1;
   let evasive = false;
+  /** 이 덩어리에 진짜 숫자(0-9)가 하나라도 있었는가. */
+  let hasRealDigit = false;
+  /** 이 덩어리에 한글 수사가 쓰였는가. */
+  let usedHangul = false;
   /** 덩어리가 끝난 뒤 지금까지 본 문자가 "나누는 자리"뿐이었는가. */
   let onlyBreaksSinceLastChunk = true;
 
+  let groupSizes: number[] = [];
+  let currentGroup = 0;
+
+  /** 구분자를 만났다 — 지금까지 이어진 마디를 닫는다("110-234-567890"이면 3,3,6). */
+  const closeGroup = () => {
+    if (currentGroup > 0) {
+      groupSizes.push(currentGroup);
+      currentGroup = 0;
+    }
+  };
+
   const flush = (broken: boolean) => {
-    if (start >= 0 && digits.length > 0) {
-      chunks.push({ start, end: lastIdx + 1, digits, evasive, brokenAfter: broken });
+    closeGroup();
+    // 알파벳만 숫자로 읽어 만든 덩어리는 버린다 — 영어 낱말이 번호로 둔갑하지 않게.
+    // (한글 수사만으로 쓴 "공일공"은 명백한 우회 표기라 그대로 둔다.)
+    const alphaOnly = !hasRealDigit && evasive && !usedHangul;
+    if (start >= 0 && digits.length > 0 && !alphaOnly) {
+      chunks.push({ start, end: lastIdx + 1, digits, evasive, brokenAfter: broken, separatorAfter: false, groupSizes });
     }
     start = -1;
     digits = "";
     lastIdx = -1;
     evasive = false;
+    hasRealDigit = false;
+    usedHangul = false;
+    groupSizes = [];
+    currentGroup = 0;
   };
 
   for (let i = 0; i < text.length; i++) {
@@ -156,11 +196,13 @@ function scanChunks(text: string): Chunk[] {
     } else if (HANGUL_NUMERALS.has(ch)) {
       // 이어진 한글 수사 구간은 통째로 판단하고 통째로 소비한다.
       // (글자마다 다시 따지면 "공일공"의 '일'부터가 두 자짜리 구간으로 보여 번호가 잘린다.)
-      let end = i;
-      while (end < text.length && HANGUL_NUMERALS.has(text[end]!)) end++;
-      if (!hangulRunIsNumeric(text, i, end)) {
+      let runEnd = i;
+      while (runEnd < text.length && HANGUL_NUMERALS.has(text[runEnd]!)) runEnd++;
+      const consumedEnd = runEnd; // 낱말 판정과 무관하게 이 구간은 통째로 지나간다
+      const end = trimHangulTail(text, i, runEnd); // 끝에 붙은 조사·어미는 뗀다
+      if (end <= i || !hangulRunIsNumeric(text, i, end)) {
         flush(true); // 낱말이다 — 여기서 끊고 합치기도 막는다
-        i = end - 1;
+        i = consumedEnd - 1;
         onlyBreaksSinceLastChunk = false;
         continue;
       }
@@ -173,12 +215,21 @@ function scanChunks(text: string): Chunk[] {
       }
       for (let k = i; k < end; k++) {
         digits += toDigit(text[k]!)!;
+        currentGroup += 1;
         evasive = true; // 한글로 바꿔 썼다면 우회 표기
+        usedHangul = true;
       }
       lastIdx = end - 1;
+      if (end < consumedEnd) {
+        // 뒤에 조사가 붙어 있었다 — 여기서 덩어리를 닫는다.
+        flush(true);
+        i = consumedEnd - 1;
+        onlyBreaksSinceLastChunk = false;
+        continue;
+      }
       i = end - 1;
       continue;
-    } else if (toDigit(ch) !== null && alphaIsNumeric(text, i)) {
+    } else if (toDigit(ch) !== null) {
       d = toDigit(ch);
     }
 
@@ -191,13 +242,21 @@ function scanChunks(text: string): Chunk[] {
         }
         onlyBreaksSinceLastChunk = true;
       }
-      if (!isRealDigit(ch)) evasive = true;
+      if (isRealDigit(ch)) hasRealDigit = true;
+      else evasive = true;
       digits += d;
+      currentGroup += 1;
       lastIdx = i;
       continue;
     }
 
-    if (start >= 0 && INNER_SEPARATORS.has(ch)) continue; // 덩어리 안의 구분자
+    // 구분자는 덩어리 안이든 밖이든 그냥 지나간다.
+    // (밖에서 끊어 버리면 "010 - 1234 - 5678"처럼 하이픈 양옆을 띄어 쓴 표기를 통째로 놓친다.)
+    if (INNER_SEPARATORS.has(ch)) {
+      closeGroup();
+      if (start < 0 && chunks.length > 0) chunks[chunks.length - 1].separatorAfter = true;
+      continue;
+    }
     flush(true); // 다른 글자를 만났다 — 여기서 끊고 합치기도 막는다
     onlyBreaksSinceLastChunk = false;
   }
@@ -237,20 +296,19 @@ function mentionsBank(text: string): boolean {
   return BANK_NAMES.some((b) => lower.includes(b));
 }
 
-/** 택배 운송장 번호를 계좌로 오인하지 않게 하는 단서. */
-const SHIPPING_HINTS = ["운송장", "송장", "택배", "등기", "invoice"];
-function mentionsShipping(text: string): boolean {
-  const lower = text.toLowerCase();
-  return SHIPPING_HINTS.some((h) => lower.includes(h));
-}
-
-/** 이 자릿수가 전화번호·계좌번호로 보이는가. */
-function classify(digits: string, bankMentioned: boolean, shippingMentioned: boolean): "phone" | "account" | null {
+/**
+ * 이 자릿수가 전화번호·계좌번호로 보이는가.
+ *
+ * 운송장 번호를 계좌로 오해하는 경우가 있지만, "택배로 보낼게요 + 계좌 알려드릴게요"는
+ * 사기에서 가장 흔한 문장이라 택배 얘기가 나왔다고 계좌 판정을 끄지는 않는다.
+ * (알림만 뜨는 기능이라, 놓치는 쪽이 훨씬 위험하다.)
+ */
+function classify(digits: string, bankMentioned: boolean): "phone" | "account" | null {
   if (looksLikePhone(digits)) return "phone";
-  if (shippingMentioned) return null; // 운송장 번호일 가능성이 커서 계좌로 보지 않는다
   if (looksLikeAccount(digits)) return "account";
-  // 은행 이름이 함께 적혔다면 자릿수가 조금 짧아도 계좌로 본다.
-  if (bankMentioned && digits.length >= 8 && digits.length <= 16) return "account";
+  // 은행 이름이 함께 적혔더라도 10자리는 넘어야 한다 —
+  // 그러지 않으면 "계좌이체는 2026.07.24에" 같은 날짜·금액이 계좌로 잡힌다.
+  if (bankMentioned && digits.length >= 10 && digits.length <= 16) return "account";
   return null;
 }
 
@@ -280,14 +338,16 @@ function toSpan(group: Chunk[], kind: "phone" | "account"): SensitiveSpan {
  */
 export function scanSensitive(text: string): SensitiveScan {
   const bankMentioned = mentionsBank(text);
-  const shippingMentioned = mentionsShipping(text);
   const chunks = scanChunks(text);
   const spans: SensitiveSpan[] = [];
 
   let i = 0;
   while (i < chunks.length) {
     // 1) 덩어리 하나로 번호가 되는가 — 가장 흔한 경우다("010-1234-5678", "110-234-567890").
-    const single = classify(chunks[i].digits, bankMentioned, shippingMentioned);
+    //    단 "15000-20000원" 같은 가격 범위는 번호로 보지 않는다.
+    const single = looksLikeNumberRange(chunks[i].groupSizes)
+      ? null
+      : classify(chunks[i].digits, bankMentioned);
     if (single) {
       spans.push(toSpan([chunks[i]], single));
       i += 1;
@@ -295,22 +355,27 @@ export function scanSensitive(text: string): SensitiveScan {
     }
 
     // 2) 안 되면 "번호를 끊어 적었나" 본다 — 짧은 조각이 이어질 때만, 최대 네 조각까지.
+    //    전화번호에만 허용한다. 계좌까지 합치면 "25000 20000" 같은 가격 흥정이
+    //    한 덩어리 계좌로 둔갑하는데, 그 오탐이 놓치는 것보다 나쁘다.
     let matched = false;
     for (let take = Math.min(4, chunks.length - i); take >= 2; take--) {
       const group = chunks.slice(i, i + take);
       const digits = group.map((c) => c.digits).join("");
+      const pieceSizes = group.map((c) => c.digits.length);
       if (looksSplitApart(group, 4) && looksLikePhone(digits)) {
         spans.push(toSpan(group, "phone"));
         i += take;
         matched = true;
         break;
       }
-      // 계좌를 끊어 적는 경우("3333 01 1234567")는 은행 이름이 함께 있을 때만 본다.
+      // 계좌를 "3333 - 01 - 1234567"처럼 띄어 적은 경우 — 조각 사이에 하이픈 같은 구분자가
+      // 있을 때만 이어 붙인다. 그냥 띄어 쓴 숫자("25000 20000")까지 합치면 가격 흥정이 계좌가 된다.
       if (
         bankMentioned &&
-        !shippingMentioned &&
         looksSplitApart(group, 7) &&
-        classify(digits, true, false) === "account"
+        group.slice(0, -1).every((c) => c.separatorAfter) &&
+        !looksLikeNumberRange(pieceSizes) &&
+        classify(digits, true) === "account"
       ) {
         spans.push(toSpan(group, "account"));
         i += take;
