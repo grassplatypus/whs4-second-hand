@@ -1,9 +1,10 @@
 import { prisma } from "@/features/_shared/prisma";
 import { withErrorHandling, AppError } from "@/features/_shared/error";
-import { currentUserFromRefresh } from "@/features/auth/session";
-import { readRefreshCookie, clearRefreshCookie } from "@/features/auth/cookies";
+import { requireActiveUser } from "@/features/auth/rbac";
+import { clearRefreshCookie } from "@/features/auth/cookies";
 import { requestMeta } from "@/features/auth/audit";
-import { requireRecentAuth } from "@/features/auth/twofactor/stepup";
+import { requireRecentAuth, clearStepUpCookie } from "@/features/auth/twofactor/stepup";
+import { clearChallengeCookie } from "@/features/auth/twofactor/challenge";
 import { withdraw } from "@/features/profile/account";
 
 function stepUpRequired(): AppError {
@@ -13,12 +14,15 @@ function stepUpRequired(): AppError {
 // 회원 탈퇴 — 민감 작업이라 step-up 재인증을 추가로 요구한다.
 // step_up 쿠키는 발급된 userId에 바인딩되어 있어, 다른 유저(refresh 세션)의 재인증으로는 통과할 수 없다.
 export const POST = withErrorHandling(async (req: Request) => {
-  const current = await currentUserFromRefresh(prisma, readRefreshCookie(req));
-  if (!current) throw new AppError("UNAUTHENTICATED", "로그인이 필요해요.", 401);
+  const current = await requireActiveUser(prisma, req);
   const recent = await requireRecentAuth(req);
   if (recent.userId !== current.userId) throw stepUpRequired();
 
   await withdraw(prisma, current.userId, requestMeta(req));
   // 계정은 이미 소프트 삭제됐고 서비스가 모든 세션을 폐기했다 — 클라이언트의 refresh 쿠키도 지운다.
-  return Response.json({ ok: true }, { headers: { "set-cookie": clearRefreshCookie() } });
+  // step_up/2fa_challenge 쿠키도 함께 지워 공유 브라우저에서의 잔존 노출을 막는다.
+  const res = Response.json({ ok: true }, { headers: { "set-cookie": clearRefreshCookie() } });
+  res.headers.append("set-cookie", clearStepUpCookie());
+  res.headers.append("set-cookie", clearChallengeCookie());
+  return res;
 });

@@ -5,8 +5,11 @@ import { AppError } from "@/features/_shared/error";
 
 const currentUserFromRefresh = vi.fn();
 const startPhoneVerification = vi.fn();
+const userFindUnique = vi.fn();
 
-vi.mock("@/features/_shared/prisma", () => ({ prisma: {} }));
+vi.mock("@/features/_shared/prisma", () => ({
+  prisma: { user: { findUnique: (...args: unknown[]) => userFindUnique(...args) } },
+}));
 vi.mock("@/features/auth/session", () => ({ currentUserFromRefresh: (...args: unknown[]) => currentUserFromRefresh(...args) }));
 vi.mock("@/features/location/phone/sms", () => ({ getSms: () => ({ send: vi.fn() }) }));
 vi.mock("@/features/location/service", () => ({ startPhoneVerification: (...args: unknown[]) => startPhoneVerification(...args) }));
@@ -24,6 +27,8 @@ describe("POST /api/auth/phone/send", () => {
   beforeEach(() => {
     currentUserFromRefresh.mockReset();
     startPhoneVerification.mockReset();
+    userFindUnique.mockReset();
+    userFindUnique.mockResolvedValue({ role: "USER", deletedAt: null });
   });
 
   it("401 UNAUTHENTICATED without a valid refresh session", async () => {

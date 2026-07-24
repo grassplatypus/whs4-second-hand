@@ -5,8 +5,11 @@ import { REFRESH_COOKIE } from "@/features/auth/cookies";
 const currentUserFromRefresh = vi.fn();
 const setLocation = vi.fn();
 const getGeocoder = vi.fn(() => ({ geocode: vi.fn() }));
+const userFindUnique = vi.fn();
 
-vi.mock("@/features/_shared/prisma", () => ({ prisma: {} }));
+vi.mock("@/features/_shared/prisma", () => ({
+  prisma: { user: { findUnique: (...args: unknown[]) => userFindUnique(...args) } },
+}));
 vi.mock("@/features/auth/session", () => ({ currentUserFromRefresh: (...args: unknown[]) => currentUserFromRefresh(...args) }));
 vi.mock("@/features/location/geocoder/geocoder", () => ({ getGeocoder: () => getGeocoder() }));
 vi.mock("@/features/location/service", async () => {
@@ -28,6 +31,8 @@ describe("POST /api/auth/location", () => {
   beforeEach(() => {
     currentUserFromRefresh.mockReset();
     setLocation.mockReset();
+    userFindUnique.mockReset();
+    userFindUnique.mockResolvedValue({ role: "USER", deletedAt: null });
   });
 
   it("401 UNAUTHENTICATED without a valid refresh session", async () => {

@@ -1,12 +1,10 @@
 import { prisma } from "@/features/_shared/prisma";
-import { withErrorHandling, AppError } from "@/features/_shared/error";
-import { currentUserFromRefresh } from "@/features/auth/session";
-import { readRefreshCookie } from "@/features/auth/cookies";
+import { withErrorHandling } from "@/features/_shared/error";
+import { requireActiveUser } from "@/features/auth/rbac";
 import { getMyProfile } from "@/features/profile/service";
 
 export const GET = withErrorHandling(async (req: Request) => {
-  const current = await currentUserFromRefresh(prisma, readRefreshCookie(req));
-  if (!current) throw new AppError("UNAUTHENTICATED", "로그인이 필요해요.", 401);
+  const current = await requireActiveUser(prisma, req);
 
   const profile = await getMyProfile(prisma, current.userId);
   return Response.json(profile);

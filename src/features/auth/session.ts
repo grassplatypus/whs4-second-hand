@@ -74,6 +74,12 @@ export async function rotateSession(
 
   if (current.expiresAt.getTime() <= Date.now() || current.user.deletedAt) throw authFailed();
 
+  if (current.user.role === "SUSPENDED") {
+    // 정지 계정: 회전을 거부할 뿐 아니라 지금 쓰인 세션도 즉시 폐기한다(재사용 여지 제거).
+    await db.session.update({ where: { id: current.id }, data: { revokedAt: new Date() } });
+    throw new AppError("ACCOUNT_SUSPENDED", "계정이 정지되었어요.", 403);
+  }
+
   // 원자적 claim(CAS): revokedAt: null 조건이 걸린 상태에서만 갱신된다.
   // 동시에 같은 토큰으로 들어온 요청 중 단 하나만 count: 1을 받는다 — 나머지는 여기서 조용히 패배한다.
   const claim = await db.session.updateMany({

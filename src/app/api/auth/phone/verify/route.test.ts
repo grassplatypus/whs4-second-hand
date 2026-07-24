@@ -5,8 +5,11 @@ import { AppError } from "@/features/_shared/error";
 
 const currentUserFromRefresh = vi.fn();
 const confirmPhoneVerification = vi.fn();
+const userFindUnique = vi.fn();
 
-vi.mock("@/features/_shared/prisma", () => ({ prisma: {} }));
+vi.mock("@/features/_shared/prisma", () => ({
+  prisma: { user: { findUnique: (...args: unknown[]) => userFindUnique(...args) } },
+}));
 vi.mock("@/features/auth/session", () => ({ currentUserFromRefresh: (...args: unknown[]) => currentUserFromRefresh(...args) }));
 vi.mock("@/features/location/service", () => ({ confirmPhoneVerification: (...args: unknown[]) => confirmPhoneVerification(...args) }));
 
@@ -24,6 +27,8 @@ describe("POST /api/auth/phone/verify", () => {
   beforeEach(() => {
     currentUserFromRefresh.mockReset();
     confirmPhoneVerification.mockReset();
+    userFindUnique.mockReset();
+    userFindUnique.mockResolvedValue({ role: "USER", deletedAt: null });
   });
 
   it("401 UNAUTHENTICATED without a valid refresh session", async () => {

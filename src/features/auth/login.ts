@@ -50,6 +50,11 @@ export async function loginUser(db: AuthDb, raw: unknown, meta: RequestMeta): Pr
     throw authFailed();
   }
 
+  // 인증(비번 검증) 통과 후에만 검사한다 — 그 전에 걸면 정지 여부가 계정 존재를 누출하는 오라클이 된다.
+  if (user.role === "SUSPENDED" || user.deletedAt) {
+    throw new AppError("ACCOUNT_SUSPENDED", "계정이 정지되었어요.", 403);
+  }
+
   if (user.twoFactorMethod !== "NONE") {
     await logAuthEvent(db, AUTH_EVENTS.TWO_FACTOR_CHALLENGE, user.id, meta);
     return { twoFactorRequired: true, method: user.twoFactorMethod, userId: user.id };

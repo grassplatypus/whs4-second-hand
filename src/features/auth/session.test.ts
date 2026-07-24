@@ -144,6 +144,22 @@ describe("rotateSession", () => {
     await expect(rotateSession(db, "old-token", noMeta)).rejects.toMatchObject({ code: "AUTH_FAILED" });
   });
 
+  it("rejects and revokes the session for a SUSPENDED user with 403 ACCOUNT_SUSPENDED", async () => {
+    const db = rotationDb({ ...liveSession, user: { id: "u1", role: "SUSPENDED", deletedAt: null } });
+    await expect(rotateSession(db, "old-token", noMeta)).rejects.toMatchObject({
+      code: "ACCOUNT_SUSPENDED",
+      httpStatus: 403,
+    });
+
+    // 정지 계정은 회전을 거부할 뿐 아니라 현재 세션도 폐기한다(재사용 방지).
+    const revoke = (db.session.update as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    expect(revoke.where).toEqual({ id: "s1" });
+    expect(revoke.data.revokedAt).toBeInstanceOf(Date);
+
+    // 정상 회전 경로(새 세션 발급)는 타지 않는다.
+    expect(db.session.create as ReturnType<typeof vi.fn>).not.toHaveBeenCalled();
+  });
+
   it("audits a successful rotation as REFRESH", async () => {
     const db = rotationDb(liveSession);
     await rotateSession(db, "old-token", noMeta);

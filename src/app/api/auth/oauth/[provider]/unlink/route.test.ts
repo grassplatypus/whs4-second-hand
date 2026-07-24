@@ -7,8 +7,11 @@ import { REFRESH_COOKIE } from "@/features/auth/cookies";
 
 const currentUserFromRefresh = vi.fn();
 const unlinkIdentity = vi.fn();
+const userFindUnique = vi.fn();
 
-vi.mock("@/features/_shared/prisma", () => ({ prisma: {} }));
+vi.mock("@/features/_shared/prisma", () => ({
+  prisma: { user: { findUnique: (...args: unknown[]) => userFindUnique(...args) } },
+}));
 vi.mock("@/features/auth/session", () => ({ currentUserFromRefresh: (...args: unknown[]) => currentUserFromRefresh(...args) }));
 vi.mock("@/features/auth/oauth/link", () => ({ unlinkIdentity: (...args: unknown[]) => unlinkIdentity(...args) }));
 
@@ -32,6 +35,8 @@ describe("POST /api/auth/oauth/[provider]/unlink — step-up gating", () => {
   beforeEach(() => {
     currentUserFromRefresh.mockReset();
     unlinkIdentity.mockReset();
+    userFindUnique.mockReset();
+    userFindUnique.mockResolvedValue({ role: "USER", deletedAt: null });
   });
 
   it("401 UNAUTHENTICATED when there's no refresh session (checked before step-up)", async () => {

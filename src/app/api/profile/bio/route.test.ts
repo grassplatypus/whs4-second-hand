@@ -4,8 +4,11 @@ import { REFRESH_COOKIE } from "@/features/auth/cookies";
 
 const currentUserFromRefresh = vi.fn();
 const updateBio = vi.fn();
+const userFindUnique = vi.fn();
 
-vi.mock("@/features/_shared/prisma", () => ({ prisma: {} }));
+vi.mock("@/features/_shared/prisma", () => ({
+  prisma: { user: { findUnique: (...args: unknown[]) => userFindUnique(...args) } },
+}));
 vi.mock("@/features/auth/session", () => ({ currentUserFromRefresh: (...args: unknown[]) => currentUserFromRefresh(...args) }));
 vi.mock("@/features/profile/service", async () => {
   const actual = await vi.importActual<typeof import("@/features/profile/service")>("@/features/profile/service");
@@ -26,6 +29,8 @@ describe("PATCH /api/profile/bio", () => {
   beforeEach(() => {
     currentUserFromRefresh.mockReset();
     updateBio.mockReset();
+    userFindUnique.mockReset();
+    userFindUnique.mockResolvedValue({ role: "USER", deletedAt: null });
   });
 
   it("401 UNAUTHENTICATED without a valid refresh session", async () => {
@@ -51,5 +56,14 @@ describe("PATCH /api/profile/bio", () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ ok: true });
     expect(updateBio).toHaveBeenCalledWith(expect.anything(), "u1", "hello", expect.anything());
+  });
+
+  it("403 ACCOUNT_SUSPENDED for a SUSPENDED user, even with a live session (real-time block)", async () => {
+    currentUserFromRefresh.mockResolvedValue({ userId: "u1" });
+    userFindUnique.mockResolvedValue({ role: "SUSPENDED", deletedAt: null });
+    const res = await PATCH(req({ bio: "hello" }, `${REFRESH_COOKIE}=tok`));
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ code: "ACCOUNT_SUSPENDED" });
+    expect(updateBio).not.toHaveBeenCalled();
   });
 });
