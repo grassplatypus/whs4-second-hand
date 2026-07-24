@@ -1,6 +1,6 @@
 import type { EscrowStatus } from "@prisma/client";
 import { AppError } from "@/features/_shared/error";
-import type { ChatRepo, ListReportsOptions } from "@/features/chat/repo";
+import { SYSTEM_REPORTER_ID, type ChatRepo, type ListReportsOptions } from "@/features/chat/repo";
 import type { AdminDb } from "./db";
 
 /**
@@ -50,7 +50,10 @@ export async function forceDeleteProduct(db: AdminDb, adminId: string, productId
 
 export interface ReportView {
   id: string;
-  reporterNickname: string;
+  /** 신고자 닉네임. 자동 감지(system)면 조회할 유저가 없으므로 null — 화면에서 라벨로 대신한다. */
+  reporterNickname: string | null;
+  /** 시스템이 올린 건이라 신고자가 실제 유저가 아님. 화면은 "자동 감지"로 표시한다. */
+  reporterIsSystem: boolean;
   targetType: "message" | "user";
   /** user 신고면 대상 닉네임, message 신고면 대상 메시지 식별자(닉네임 조회 불가). */
   targetLabel: string;
@@ -75,9 +78,10 @@ export async function listReports(
 ): Promise<ReportView[]> {
   const reports = await repo.listReports(opts);
   // 신고자 + user 신고 대상의 닉네임을 한 번에 조회(N+1 방지).
+  // 자동 감지 건의 신고자("system")는 실제 유저가 아니라 조회 대상에서 뺀다 — 넣으면 빈칸으로 보인다.
   const userIds = new Set<string>();
   for (const r of reports) {
-    userIds.add(r.reporterId);
+    if (r.reporterId !== SYSTEM_REPORTER_ID) userIds.add(r.reporterId);
     if (r.targetType === "user") userIds.add(r.targetId);
   }
   const users = userIds.size
@@ -86,7 +90,8 @@ export async function listReports(
   const nick = new Map(users.map((u) => [u.id, u.nickname]));
   return reports.map((r) => ({
     id: r._id,
-    reporterNickname: nick.get(r.reporterId) ?? "(탈퇴)",
+    reporterNickname: r.reporterId === SYSTEM_REPORTER_ID ? null : (nick.get(r.reporterId) ?? "(탈퇴)"),
+    reporterIsSystem: r.reporterId === SYSTEM_REPORTER_ID,
     targetType: r.targetType,
     targetLabel: r.targetType === "user" ? (nick.get(r.targetId) ?? "(탈퇴)") : r.targetId,
     targetUserId: r.targetType === "user" ? r.targetId : null,

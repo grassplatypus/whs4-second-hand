@@ -10,7 +10,6 @@ function renderIt(overrides: Partial<React.ComponentProps<typeof ChatRoom>> = {}
     <NextIntlClientProvider locale="ko" messages={ko}>
       <ChatRoom
         conversationId="c1"
-        currentUserId="buyer-1"
         otherNickname="풀숲여우"
         productId="p1"
         {...overrides}
@@ -357,5 +356,62 @@ describe("ChatRoom", () => {
     // 히스토리 조회 1회 + 읽음 표시 1회. 소켓은 열지 않는다(그래서 소켓 목이 필요 없다).
     await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(1));
     expect(fetchMock.mock.calls.every(([u]) => String(u).startsWith("/api/"))).toBe(true);
+  });
+});
+
+describe("연락처·계좌 표시와 사기 이력 확인", () => {
+  const accountMsg: ChatMessageView = {
+    _id: "mA",
+    conversationId: "c1",
+    mine: false,
+    kind: "text",
+    text: "국민 110-234-567890 으로 보내주세요",
+    masked: false,
+    createdAt: "2026-01-01T00:02:00.000Z",
+    sensitive: [{ start: 3, end: 17, kind: "account", evasive: false, digits: "110234567890" }],
+  };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("계좌가 오간 메시지에는 안내 문구와 확인 버튼이 보인다", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({ "GET /api/chat/conversations/c1/messages": () => ({ messages: [accountMsg] }) }),
+    );
+    renderIt();
+
+    expect(await screen.findByText(/계좌번호가 오갔어요/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "사기 이력 확인" })).toBeInTheDocument();
+  });
+
+  it("확인을 누르면 그 번호의 조회 결과를 보여준다", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "GET /api/chat/conversations/c1/messages": () => ({ messages: [accountMsg] }),
+        "POST /api/chat/fraud-check": () => ({ reported: true, count: 2 }),
+      }),
+    );
+    renderIt();
+
+    const button = await screen.findByRole("button", { name: "사기 이력 확인" });
+    await userEvent.click(button);
+
+    await waitFor(() => expect(screen.getByText(/신고 이력이 2건 있어요/)).toBeInTheDocument());
+  });
+
+  it("내가 보낸 메시지에는 확인 버튼을 붙이지 않는다", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routedFetch({
+        "GET /api/chat/conversations/c1/messages": () => ({ messages: [{ ...accountMsg, mine: true }] }),
+      }),
+    );
+    renderIt();
+
+    expect(await screen.findByText(/계좌번호가 오갔어요/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "사기 이력 확인" })).not.toBeInTheDocument();
   });
 });

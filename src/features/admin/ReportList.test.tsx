@@ -184,6 +184,66 @@ describe("ReportList", () => {
     expect(screen.queryByRole("button", { name: ko.admin.suspendUser })).not.toBeInTheDocument();
   });
 
+  it("자동 신고는 신고자 자리에 '자동 감지' 라벨을 보여준다(빈칸 아님)", async () => {
+    const systemReport: ReportItemView = {
+      id: "r3",
+      reporterNickname: null,
+      reporterIsSystem: true,
+      targetType: "message",
+      targetLabel: "msg-999",
+      targetUserId: null,
+      reason: "자동 감지: 비속어",
+      snapshot: "원문",
+      status: "open",
+      createdAt: "2026-01-03T00:00:00.000Z",
+      auto: true,
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ok([systemReport])));
+    renderIt();
+
+    await screen.findByText(ko.admin.reporter);
+    // 신고자 자리(아바타 + 이름)가 카탈로그 문구로 채워진다 — 빈칸도, 원본 "system"도 아니다.
+    expect(screen.getByRole("img", { name: ko.admin.systemReporter })).toBeInTheDocument();
+    expect(screen.getAllByText(ko.admin.systemReporter)).toHaveLength(2); // 신고자 이름 + 자동 감지 배지
+    expect(screen.queryByText("system")).not.toBeInTheDocument();
+  });
+
+  it("한 쪽이 꽉 차면 '더 보기'가 뜨고, 마지막 신고를 커서로 다음 쪽을 이어 붙인다", async () => {
+    const page1 = Array.from({ length: 20 }, (_, i) => ({
+      ...messageReport,
+      id: `p1-${i}`,
+      targetLabel: `msg-1-${i}`,
+      createdAt: `2026-01-${String(20 - i).padStart(2, "0")}T00:00:00.000Z`,
+    }));
+    const page2 = [{ ...messageReport, id: "p2-0", targetLabel: "오래된-신고" }];
+    const fetchMock = routedFetch({
+      "cursor=": () => ({ ok: true, body: { reports: page2 } }),
+      "GET /api/admin/reports": () => ({ ok: true, body: { reports: page1 } }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    renderIt();
+
+    await user.click(await screen.findByRole("button", { name: ko.admin.reportsMore }));
+
+    // 두 번째 요청에 마지막 신고의 createdAt·status가 커서로 실린다.
+    const moreCall = fetchMock.mock.calls.find(([u]) => String(u).includes("cursor="));
+    expect(String(moreCall?.[0])).toContain(encodeURIComponent(page1[19].createdAt));
+    expect(String(moreCall?.[0])).toContain("cursorStatus=open");
+    // 앞쪽을 지우지 않고 이어 붙인다.
+    expect(await screen.findByText("오래된-신고")).toBeInTheDocument();
+    expect(screen.getByText("msg-1-0")).toBeInTheDocument();
+    // 다음 쪽이 한 쪽을 못 채웠으니 버튼은 사라진다.
+    expect(screen.queryByRole("button", { name: ko.admin.reportsMore })).not.toBeInTheDocument();
+  });
+
+  it("한 쪽을 다 못 채우면 '더 보기'가 없다", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ok([messageReport])));
+    renderIt();
+    await screen.findByText("바다표범");
+    expect(screen.queryByRole("button", { name: ko.admin.reportsMore })).not.toBeInTheDocument();
+  });
+
   it("maps a load error code to the catalog message", async () => {
     vi.stubGlobal(
       "fetch",

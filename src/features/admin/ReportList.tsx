@@ -14,7 +14,10 @@ export type ReportStatusFilter = "open" | "resolved" | "dismissed";
  */
 export interface ReportItemView {
   id: string;
-  reporterNickname: string;
+  /** 신고자 닉네임. 자동 감지 건은 신고자가 유저가 아니라 null이다. */
+  reporterNickname: string | null;
+  /** 시스템이 올린 건 — 신고자 자리에 "자동 감지"를 보여준다. */
+  reporterIsSystem?: boolean;
   targetType: "message" | "user";
   targetLabel: string;
   targetUserId: string | null;
@@ -54,6 +57,22 @@ function formatDate(iso: string, format: ReturnType<typeof useFormatter>): strin
 
 const FILTERS: ReportStatusFilter[] = ["open", "resolved", "dismissed"];
 
+/** 한 번에 불러오는 신고 수 — 이만큼 꽉 차서 오면 뒤에 더 있다고 본다. */
+const PAGE_SIZE = 20;
+
+/**
+ * 목록 요청 URL. after를 주면 그 신고 뒤(더 오래된 쪽)부터 이어 받는다.
+ * 정렬이 open 우선 → 최신순이라 커서에는 시각과 상태가 함께 필요하다.
+ */
+function reportsUrl(status: ReportStatusFilter, after?: ReportItemView): string {
+  const params = new URLSearchParams({ status, limit: String(PAGE_SIZE) });
+  if (after) {
+    params.set("cursor", after.createdAt);
+    params.set("cursorStatus", after.status);
+  }
+  return `/api/admin/reports?${params.toString()}`;
+}
+
 export function ReportList() {
   const t = useTranslations("admin");
   const format = useFormatter();
@@ -64,11 +83,13 @@ export function ReportList() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const load = useCallback(async () => {
     setLoadError(null);
     try {
-      const res = await fetch(`/api/admin/reports?status=${status}`);
+      const res = await fetch(reportsUrl(status));
       if (!res.ok) {
         const code = await readErrorCode(res);
         setLoadError(t(ERROR_KEYS[code ?? ""] ?? "failed"));
@@ -76,12 +97,36 @@ export function ReportList() {
       }
       const body = (await res.json()) as { reports: ReportItemView[] };
       setItems(body.reports);
+      setHasMore(body.reports.length === PAGE_SIZE);
     } catch {
       setLoadError(t("failed"));
     } finally {
       setLoading(false);
     }
   }, [status, t]);
+
+  /** 마지막 신고를 커서 삼아 다음 쪽을 이어 붙인다 — 오래된 신고도 볼 수 있게. */
+  async function loadMore() {
+    const last = items[items.length - 1];
+    if (!last || loadingMore) return;
+    setLoadError(null);
+    setLoadingMore(true);
+    try {
+      const res = await fetch(reportsUrl(status, last));
+      if (!res.ok) {
+        const code = await readErrorCode(res);
+        setLoadError(t(ERROR_KEYS[code ?? ""] ?? "failed"));
+        return;
+      }
+      const body = (await res.json()) as { reports: ReportItemView[] };
+      setItems((prev) => [...prev, ...body.reports]);
+      setHasMore(body.reports.length === PAGE_SIZE);
+    } catch {
+      setLoadError(t("failed"));
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   useEffect(() => {
     setLoading(true);
@@ -132,6 +177,11 @@ export function ReportList() {
   }
   const suspend = (id: string) => userAction(id, "suspend");
   const lift = (id: string) => userAction(id, "lift");
+
+  /** 신고자 이름. 자동 감지 건은 조회할 유저가 없으니 라벨로 대신한다(빈칸 방지). */
+  function reporterLabel(r: ReportItemView): string {
+    return r.reporterIsSystem ? t("systemReporter") : (r.reporterNickname ?? "");
+  }
 
   function statusLabel(s: string): string {
     if (s === "open" || s === "resolved" || s === "dismissed") return t(`reportStatus.${s}`);
@@ -206,10 +256,10 @@ export function ReportList() {
               </div>
 
               <div className="flex items-center gap-3">
-                <Avatar nickname={r.reporterNickname} size={32} />
+                <Avatar nickname={reporterLabel(r)} size={32} />
                 <div className="flex min-w-0 flex-col">
                   <span className="text-xs text-zinc-500 dark:text-zinc-400">{t("reporter")}</span>
-                  <span className="truncate font-medium text-zinc-900 dark:text-zinc-50">{r.reporterNickname}</span>
+                  <span className="truncate font-medium text-zinc-900 dark:text-zinc-50">{reporterLabel(r)}</span>
                 </div>
               </div>
 
@@ -258,6 +308,12 @@ export function ReportList() {
           </li>
         ))}
       </ul>
+
+      {!loading && !loadError && hasMore && (
+        <Button type="button" variant="secondary" onClick={() => void loadMore()} disabled={loadingMore}>
+          {loadingMore ? t("loading") : t("reportsMore")}
+        </Button>
+      )}
     </div>
   );
 }

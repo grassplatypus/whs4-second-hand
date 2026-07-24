@@ -33,10 +33,14 @@ export function PageContainer({
   );
 }
 
-/** 페이지 헤더(제목 + 선택적 설명). */
+/**
+ * 페이지 헤더(제목 + 선택적 설명).
+ * w-full이 필수다 — PageContainer가 items-center로 가운데 정렬하는 페이지에서 헤더만 글자 폭으로
+ * 줄어들면 제목이 본문과 좌우로 어긋난다.
+ */
 export function PageHeader({ title, subtitle }: { title: string; subtitle?: string }) {
   return (
-    <div className="flex flex-col gap-1">
+    <div className="flex w-full flex-col gap-1">
       <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">{title}</h1>
       {subtitle && <p className="text-sm text-zinc-500 dark:text-zinc-400">{subtitle}</p>}
     </div>

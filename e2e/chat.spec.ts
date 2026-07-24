@@ -263,3 +263,110 @@ test("채팅 슬라이스 전체: 시작→마스킹→이미지-후-답장 규�
     await thirdCtx.close();
   }
 });
+
+test("연락처·계좌 탐지, 사기 이력 확인, 읽음·안 읽은 수, 방 나가기와 재등장", async ({ browser }) => {
+  const sellerCtx = await browser.newContext({ locale: "ko-KR" });
+  const buyerCtx = await browser.newContext({ locale: "ko-KR" });
+  const thirdCtx = await browser.newContext({ locale: "ko-KR" });
+
+  try {
+    const sellerId = unique();
+    const buyerId = unique();
+    const thirdId = unique();
+    await registerAndLogin(sellerCtx.request, sellerId);
+    await setLocation(sellerCtx.request);
+    await registerAndLogin(buyerCtx.request, buyerId);
+    await registerAndLogin(thirdCtx.request, thirdId);
+
+    const create = await sellerCtx.request.post("/api/products", {
+      data: { title: "자전거 팝니다", description: "거의 새것", price: 120000, category: "ETC" },
+    });
+    expect(create.status()).toBe(201);
+    const { id: productId } = await create.json();
+
+    const start = await buyerCtx.request.post("/api/chat/conversations", {
+      data: { productId, firstText: "안녕하세요, 아직 있나요?" },
+    });
+    expect(start.status()).toBe(201);
+    const conversationId: string = (await start.json()).conversationId;
+
+    // 1) 판매자가 계좌번호를 보낸다 — 서버가 그 구간을 찾아 표시해 내려준다.
+    const account = await sellerCtx.request.post(`/api/chat/conversations/${conversationId}/messages`, {
+      data: { kind: "text", text: "국민 110-234-567890 으로 보내주세요" },
+    });
+    expect(account.status()).toBe(201);
+    const accountBody = await account.json();
+    expect(accountBody.message.sensitive?.[0]?.kind).toBe("account");
+
+    // 2) 구매자는 그 번호의 사기 이력을 확인할 수 있다(데모용 흉내 조회).
+    const check = await buyerCtx.request.post("/api/chat/fraud-check", {
+      data: { conversationId, value: "110-234-567890" },
+    });
+    expect(check.ok()).toBeTruthy();
+    const checkBody = await check.json();
+    expect(typeof checkBody.reported).toBe("boolean");
+    expect(typeof checkBody.count).toBe("number");
+
+    // 대화에서 오간 적 없는 번호는 조회해 주지 않는다(아무 번호나 캐는 창구가 되면 안 된다).
+    const unrelated = await buyerCtx.request.post("/api/chat/fraud-check", {
+      data: { conversationId, value: "999-888-777666" },
+    });
+    expect(unrelated.status()).toBe(400);
+
+    // 참여자가 아니면 확인 자체가 안 된다.
+    const outsider = await thirdCtx.request.post("/api/chat/fraud-check", {
+      data: { conversationId, value: "110-234-567890" },
+    });
+    expect(outsider.status()).toBe(403);
+
+    // 3) 안 읽은 개수 — 판매자 메시지가 구매자 쪽에 쌓인다.
+    const beforeRead = await buyerCtx.request.get("/api/chat/conversations");
+    const beforeConv = (await beforeRead.json()).conversations.find(
+      (c: { conversationId: string }) => c.conversationId === conversationId,
+    );
+    expect(beforeConv.unreadCount).toBeGreaterThan(0);
+
+    const read = await buyerCtx.request.post(`/api/chat/conversations/${conversationId}/read`);
+    expect(read.ok()).toBeTruthy();
+    const afterRead = await buyerCtx.request.get("/api/chat/conversations");
+    const afterConv = (await afterRead.json()).conversations.find(
+      (c: { conversationId: string }) => c.conversationId === conversationId,
+    );
+    expect(afterConv.unreadCount).toBe(0);
+
+    // 4) 방 나가기 — 내 목록에서만 사라지고, 상대 목록에는 그대로 남는다.
+    const leave = await buyerCtx.request.post(`/api/chat/conversations/${conversationId}/leave`);
+    expect(leave.ok()).toBeTruthy();
+
+    const buyerListAfterLeave = await buyerCtx.request.get("/api/chat/conversations");
+    expect(
+      (await buyerListAfterLeave.json()).conversations.some(
+        (c: { conversationId: string }) => c.conversationId === conversationId,
+      ),
+    ).toBe(false);
+
+    const sellerListAfterLeave = await sellerCtx.request.get("/api/chat/conversations");
+    expect(
+      (await sellerListAfterLeave.json()).conversations.some(
+        (c: { conversationId: string }) => c.conversationId === conversationId,
+      ),
+    ).toBe(true);
+
+    // 5) 상대가 새 메시지를 보내면 내 목록에 다시 나타난다.
+    const ping = await sellerCtx.request.post(`/api/chat/conversations/${conversationId}/messages`, {
+      data: { kind: "text", text: "아직 계신가요?" },
+    });
+    expect(ping.status()).toBe(201);
+
+    const buyerListAfterPing = await buyerCtx.request.get("/api/chat/conversations");
+    expect(
+      (await buyerListAfterPing.json()).conversations.some(
+        (c: { conversationId: string }) => c.conversationId === conversationId,
+      ),
+    ).toBe(true);
+  } finally {
+    await sellerCtx.close();
+    await buyerCtx.close();
+    await thirdCtx.close();
+  }
+});

@@ -16,6 +16,7 @@ import {
   markConversationRead,
   listDormantConversations,
   deleteDormantConversations,
+  checkConversationNumber,
 } from "./service";
 import { InMemoryChatRepo } from "./repo";
 import type { ChatDb } from "./db";
@@ -763,5 +764,89 @@ describe("방 나가기 · 읽음 · 휴면", () => {
     const { conversationId } = await startConversation(repo, db, BUYER_ID, PRODUCT_ID, "안녕하세요");
     await expect(leaveConversation(repo, "third", conversationId)).rejects.toMatchObject({ httpStatus: 403 });
     await expect(markConversationRead(repo, "third", conversationId)).rejects.toMatchObject({ httpStatus: 403 });
+  });
+});
+
+describe("휴면 판정과 재참여", () => {
+  it("한쪽이 나간 뒤 온 메시지가 있으면 둘 다 나가도 휴면이 아니다", async () => {
+    const repo = new InMemoryChatRepo();
+    const db = fakeDb({});
+    // 나간 시각과 메시지 시각을 밀리초 단위로 구분하기 위해 시계를 직접 돌린다.
+    vi.useFakeTimers();
+    try {
+      const { conversationId } = await startConversation(repo, db, BUYER_ID, PRODUCT_ID, "안녕하세요");
+
+      await leaveConversation(repo, BUYER_ID, conversationId);
+      vi.advanceTimersByTime(1000);
+      // 구매자가 나간 뒤 판매자가 답을 남겼다 — 구매자 목록에는 방이 다시 떠 있다.
+      await sendMessage(repo, SELLER_ID, conversationId, { kind: "text", text: "아직 있어요" });
+      vi.advanceTimersByTime(1000);
+      await leaveConversation(repo, SELLER_ID, conversationId);
+
+      expect(await listDormantConversations(repo)).toHaveLength(0);
+      expect(await listConversations(repo, db, BUYER_ID)).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("나갔던 사람이 다시 말을 걸면 자기 목록에도 방이 돌아온다", async () => {
+    const repo = new InMemoryChatRepo();
+    const db = fakeDb({});
+    const { conversationId } = await startConversation(repo, db, BUYER_ID, PRODUCT_ID, "안녕하세요");
+    await leaveConversation(repo, BUYER_ID, conversationId);
+    expect(await listConversations(repo, db, BUYER_ID)).toHaveLength(0);
+
+    await sendMessage(repo, BUYER_ID, conversationId, { kind: "text", text: "역시 살게요" });
+
+    expect(await listConversations(repo, db, BUYER_ID)).toHaveLength(1);
+  });
+});
+
+describe("사기 이력 확인(더치트 흉내)", () => {
+  const ACCOUNT = "국민 110-234-567890 으로 보내주세요";
+
+  it("그 대화에서 오간 번호만 확인해 준다", async () => {
+    const repo = new InMemoryChatRepo();
+    const db = fakeDb({});
+    const { conversationId } = await startConversation(repo, db, BUYER_ID, PRODUCT_ID, "안녕하세요");
+    await sendMessage(repo, SELLER_ID, conversationId, { kind: "text", text: ACCOUNT });
+
+    const result = await checkConversationNumber(repo, BUYER_ID, conversationId, "110-234-567890");
+    expect(result).toMatchObject({ reported: expect.any(Boolean), count: expect.any(Number) });
+  });
+
+  it("대화에 없던 번호는 조회해 주지 않는다", async () => {
+    const repo = new InMemoryChatRepo();
+    const db = fakeDb({});
+    const { conversationId } = await startConversation(repo, db, BUYER_ID, PRODUCT_ID, "안녕하세요");
+    await sendMessage(repo, SELLER_ID, conversationId, { kind: "text", text: ACCOUNT });
+
+    await expect(
+      checkConversationNumber(repo, BUYER_ID, conversationId, "999-888-777666"),
+    ).rejects.toMatchObject({ httpStatus: 400 });
+  });
+
+  it("참여자가 아니면 확인할 수 없다(403)", async () => {
+    const repo = new InMemoryChatRepo();
+    const db = fakeDb({});
+    const { conversationId } = await startConversation(repo, db, BUYER_ID, PRODUCT_ID, "안녕하세요");
+    await sendMessage(repo, SELLER_ID, conversationId, { kind: "text", text: ACCOUNT });
+
+    await expect(
+      checkConversationNumber(repo, OTHER_ID, conversationId, "110-234-567890"),
+    ).rejects.toMatchObject({ httpStatus: 403 });
+  });
+});
+
+describe("첫 메시지 민감정보", () => {
+  it("첫 메시지에 계좌가 있어도 관리자에게 조용히 기록된다", async () => {
+    const repo = new InMemoryChatRepo();
+    const db = fakeDb({});
+    const spy = vi.spyOn(repo, "upsertAutoReport");
+
+    await startConversation(repo, db, BUYER_ID, PRODUCT_ID, "국민 110-234-567890 으로 보내드릴게요");
+
+    expect(spy).toHaveBeenCalled();
   });
 });

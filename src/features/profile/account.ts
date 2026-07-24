@@ -4,6 +4,7 @@ import { uniqueViolationOn } from "@/features/_shared/prisma-error";
 import { hashPassword, verifyPassword, dummyVerify } from "@/features/auth/password";
 import { AUTH_EVENTS, logAuthEvent, type RequestMeta } from "@/features/auth/audit";
 import type { AuthDb } from "@/features/auth/db";
+import { deleteStoredMedia } from "@/features/media/storage";
 import { assertWithdrawable, defaultWithdrawGuard, type WithdrawGuard } from "./withdrawable";
 
 // register.ts의 registerSchema와 같은 제약(비번 8~72바이트, 닉네임 2~20 trim)을 그대로 미러링한다.
@@ -113,7 +114,8 @@ export async function changeNickname(
 /**
  * 회원 탈퇴(소프트 삭제). guard를 먼저 통과해야 한다 — #3/#5/#7이 거래중·판매완료
  * 7일·에스크로·예약중 규칙을 WithdrawGuard로 주입한다. 통과 시 deletedAt을 찍고
- * 모든 세션을 폐기한다.
+ * 모든 세션을 폐기한다. 탈퇴한 사람의 프로필 사진 파일도 디스크에서 지운다
+ * (계정은 사라졌는데 얼굴 사진만 남아 있으면 안 된다). 삭제 실패는 탈퇴를 막지 않는다.
  */
 export async function withdraw(
   db: AuthDb,
@@ -123,7 +125,10 @@ export async function withdraw(
 ): Promise<void> {
   await assertWithdrawable(db, userId, guard);
 
-  await db.user.update({ where: { id: userId }, data: { deletedAt: new Date() } });
+  const before = await db.user.findUnique({ where: { id: userId }, select: { avatarPath: true } });
+
+  await db.user.update({ where: { id: userId }, data: { deletedAt: new Date(), avatarPath: null } });
   await db.session.updateMany({ where: { userId, revokedAt: null }, data: { revokedAt: new Date() } });
+  await deleteStoredMedia(before?.avatarPath);
   await logAuthEvent(db, AUTH_EVENTS.ACCOUNT_WITHDRAWN, userId, meta);
 }

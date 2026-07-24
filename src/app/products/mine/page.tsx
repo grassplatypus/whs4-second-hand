@@ -21,8 +21,9 @@ export default async function MyProductsPage() {
   // Date는 서버→클라이언트 컴포넌트 경계에서 문자열로 넘긴다(직렬화 모호함을 피한다).
   const view = items.map((p) => ({ ...p, createdAt: p.createdAt.toISOString() }));
 
+  // 목록(MyProductList)이 스스로 좁은 폭을 쓰므로 컨테이너도 같은 기본 폭(md)으로 맞춘다 — 제목과 본문이 어긋나지 않게.
   return (
-    <PageContainer size="lg" className="items-center">
+    <PageContainer>
       <PageHeader title={t("myListingsTitle")} />
       <MyProductList initialItems={view} />
     </PageContainer>

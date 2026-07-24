@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { getSessionUser } from "@/features/shell/getSessionUser";
+import { PageContainer, PageHeader } from "@/features/shell/ui";
 import { redirect } from "next/navigation";
 
 export default async function SettingsHubPage() {
@@ -17,11 +18,8 @@ export default async function SettingsHubPage() {
   ] as const;
 
   return (
-    <main className="mx-auto flex w-full max-w-2xl flex-1 flex-col gap-6 px-4 py-10">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50">{t("title")}</h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-400">{t("subtitle")}</p>
-      </div>
+    <PageContainer>
+      <PageHeader title={t("title")} subtitle={t("subtitle")} />
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {items.map((it) => (
           <Link
@@ -37,6 +35,6 @@ export default async function SettingsHubPage() {
           </Link>
         ))}
       </div>
-    </main>
+    </PageContainer>
   );
 }

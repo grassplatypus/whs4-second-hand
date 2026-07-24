@@ -96,11 +96,43 @@ describe("ws chat events (auth + rooms + broadcast)", () => {
     expect(received!.text).not.toContain("시발");
     expect(received!.text).toContain("*");
     expect(received!.masked).toBe(true);
-    expect(received!.senderId).toBe(BUYER_ID);
+    // 상대의 원본 userId는 실어 보내지 않는다 — 받는 쪽 기준으로 계산한 mine만 내려간다(REST와 동일).
+    expect(received).not.toHaveProperty("senderId");
     expect(received).not.toHaveProperty("rawText");
+    expect(received!.mine).toBe(false);
 
     // 제3자는 room에 join되지 않았으므로 room으로의 broadcast를 절대 받지 못한다(엿듣기 방지).
     expect(notReceived).toBeNull();
+  });
+
+  it("computes mine per recipient: the sender gets mine=true, the other side mine=false, and nobody gets senderId", async () => {
+    const { conversation, port } = await setup();
+
+    const buyer = await connectAs(port, BUYER_ID);
+    const seller = await connectAs(port, SELLER_ID);
+    sockets.push(buyer, seller);
+
+    buyer.emit("join", conversation._id);
+    seller.emit("join", conversation._id);
+    await delay(50);
+
+    const buyerCopy = waitForEventOrNull<Record<string, unknown>>(buyer, "message");
+    const sellerCopy = waitForEventOrNull<Record<string, unknown>>(seller, "message");
+
+    buyer.emit("message", { conversationId: conversation._id, kind: "text", text: "안녕하세요" });
+
+    const [mineForSender, mineForOther] = await Promise.all([buyerCopy, sellerCopy]);
+
+    expect(mineForSender).not.toBeNull();
+    expect(mineForOther).not.toBeNull();
+    // 같은 메시지지만 받는 사람에 따라 mine이 다르게 계산된다.
+    expect(mineForSender!._id).toBe(mineForOther!._id);
+    expect(mineForSender!.mine).toBe(true);
+    expect(mineForOther!.mine).toBe(false);
+    for (const copy of [mineForSender!, mineForOther!]) {
+      expect(copy).not.toHaveProperty("senderId");
+      expect(copy).not.toHaveProperty("rawText");
+    }
   });
 
   it("a non-participant's message is rejected by the service (error to sender, no broadcast)", async () => {

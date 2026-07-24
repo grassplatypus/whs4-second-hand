@@ -19,6 +19,8 @@ function toMessageView(message: DeliveredMessage, userId: string) {
     masked: message.masked,
     createdAt: message.createdAt,
     mine: message.senderId === userId,
+    // 전화번호·계좌로 보이는 구간 — 화면에서 밑줄로 표시하고 조심하라고 알린다.
+    ...(message.sensitive?.length ? { sensitive: message.sensitive } : {}),
   };
 }
 

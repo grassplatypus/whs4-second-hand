@@ -37,6 +37,8 @@ export interface SensitiveSpan {
   kind: "phone" | "account";
   /** 숫자를 한글·알파벳 등으로 바꿔 쓴 흔적이 있는가(있으면 경고 수위를 올린다). */
   evasive: boolean;
+  /** 이 구간에서 읽어낸 숫자만 모은 값 — 사기 이력 조회에 이 값을 쓴다. */
+  digits: string;
 }
 
 export interface SensitiveScan {
@@ -146,12 +148,12 @@ export function scanSensitive(text: string): SensitiveScan {
   const bankMentioned = mentionsBank(text);
   for (const run of scanRuns(text)) {
     if (looksLikePhone(run.digits)) {
-      spans.push({ start: run.start, end: run.end, kind: "phone", evasive: run.evasive });
+      spans.push({ start: run.start, end: run.end, kind: "phone", evasive: run.evasive, digits: run.digits });
     } else if (looksLikeAccount(run.digits)) {
-      spans.push({ start: run.start, end: run.end, kind: "account", evasive: run.evasive });
+      spans.push({ start: run.start, end: run.end, kind: "account", evasive: run.evasive, digits: run.digits });
     } else if (bankMentioned && run.digits.length >= 8) {
       // 은행 이름이 함께 적혔다면 자릿수가 조금 짧아도 계좌로 본다.
-      spans.push({ start: run.start, end: run.end, kind: "account", evasive: run.evasive });
+      spans.push({ start: run.start, end: run.end, kind: "account", evasive: run.evasive, digits: run.digits });
     }
   }
   return {

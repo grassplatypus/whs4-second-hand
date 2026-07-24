@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { InMemoryChatRepo } from "./repo";
+import { InMemoryChatRepo, mergeReportReasons } from "./repo";
 
 function makeConversation(overrides: Partial<Parameters<InMemoryChatRepo["createConversation"]>[0]> = {}) {
   const now = new Date();
@@ -206,5 +206,98 @@ describe("InMemoryChatRepo", () => {
     expect(await repo.countReports()).toBe(3);
     expect(await repo.countReports("open")).toBe(1);
     expect(await repo.countReports("dismissed")).toBe(1);
+  });
+
+  it("커서로 다음 쪽을 이어 받고, open 우선·최신순 정렬을 그대로 유지한다", async () => {
+    const repo = new InMemoryChatRepo();
+    await repo.insertReport({ reporterId: "u1", targetType: "user", targetId: "b1", reason: "open 오래됨", createdAt: new Date("2026-07-01"), status: "open" });
+    await repo.insertReport({ reporterId: "u2", targetType: "user", targetId: "b2", reason: "open 최신", createdAt: new Date("2026-07-20"), status: "open" });
+    await repo.insertReport({ reporterId: "u3", targetType: "user", targetId: "b3", reason: "처리됨 최신", createdAt: new Date("2026-07-24"), status: "resolved" });
+
+    const first = await repo.listReports({ limit: 1 });
+    expect(first.map((r) => r.reason)).toEqual(["open 최신"]);
+
+    const second = await repo.listReports({
+      limit: 1,
+      cursor: { createdAt: first[0].createdAt, status: first[0].status },
+    });
+    // 커서 뒤에도 open이 먼저다 — resolved가 더 최신이어도 밀리지 않는다.
+    expect(second.map((r) => r.reason)).toEqual(["open 오래됨"]);
+
+    const third = await repo.listReports({
+      limit: 1,
+      cursor: { createdAt: second[0].createdAt, status: second[0].status },
+    });
+    expect(third.map((r) => r.reason)).toEqual(["처리됨 최신"]);
+
+    const end = await repo.listReports({
+      limit: 1,
+      cursor: { createdAt: third[0].createdAt, status: third[0].status },
+    });
+    expect(end).toEqual([]);
+  });
+
+  it("커서는 상태 필터 안에서도 오래된 쪽으로 이어진다", async () => {
+    const repo = new InMemoryChatRepo();
+    await repo.insertReport({ reporterId: "u1", targetType: "user", targetId: "b1", reason: "1번", createdAt: new Date("2026-07-01"), status: "open" });
+    await repo.insertReport({ reporterId: "u2", targetType: "user", targetId: "b2", reason: "2번", createdAt: new Date("2026-07-02"), status: "open" });
+    await repo.insertReport({ reporterId: "u3", targetType: "user", targetId: "b3", reason: "3번", createdAt: new Date("2026-07-03"), status: "resolved" });
+
+    const page = await repo.listReports({ status: "open", limit: 1 });
+    expect(page.map((r) => r.reason)).toEqual(["2번"]);
+    const next = await repo.listReports({
+      status: "open",
+      limit: 1,
+      cursor: { createdAt: page[0].createdAt, status: page[0].status },
+    });
+    expect(next.map((r) => r.reason)).toEqual(["1번"]); // 다른 상태는 섞이지 않는다
+  });
+});
+
+describe("mergeReportReasons", () => {
+  it("같은 문구는 다시 붙이지 않고, 다른 문구만 ' · '로 잇는다", () => {
+    expect(mergeReportReasons(undefined, "자동 감지: 비속어")).toBe("자동 감지: 비속어");
+    expect(mergeReportReasons("자동 감지: 비속어", "자동 감지: 비속어")).toBe("자동 감지: 비속어");
+    expect(mergeReportReasons("자동 감지: 비속어", "욕설")).toBe("자동 감지: 비속어 · 욕설");
+    // 들어오는 사유가 이미 이어진 문자열이어도 조각 단위로 비교한다.
+    expect(mergeReportReasons("자동 감지: 비속어", "자동 감지: 비속어 · 자동 감지: 연락처 우회")).toBe(
+      "자동 감지: 비속어 · 자동 감지: 연락처 우회",
+    );
+  });
+});
+
+describe("upsertAutoReport (자동 감지 사유 병합)", () => {
+  const base = { reporterId: "system", targetType: "message" as const, targetId: "m1", status: "open" as const };
+
+  it("같은 대상에 같은 사유가 또 걸려도 사유가 중복되지 않는다", async () => {
+    const repo = new InMemoryChatRepo();
+    await repo.upsertAutoReport({ ...base, reason: "자동 감지: 비속어", snapshot: "원문", createdAt: new Date("2026-07-01") });
+    await repo.upsertAutoReport({ ...base, reason: "자동 감지: 비속어", snapshot: "다른 원문", createdAt: new Date("2026-07-02") });
+
+    const [report] = await repo.listReports();
+    expect(report.reason).toBe("자동 감지: 비속어");
+    expect(report.snapshot).toBe("원문"); // 먼저 남은 증거를 덮어쓰지 않는다
+    expect(await repo.countReports()).toBe(1);
+  });
+
+  it("다른 사유가 걸리면 기존 사유를 지우지 않고 이어 붙인다", async () => {
+    const repo = new InMemoryChatRepo();
+    await repo.upsertAutoReport({ ...base, reason: "자동 감지: 비속어", createdAt: new Date("2026-07-01") });
+    await repo.upsertAutoReport({ ...base, reason: "자동 감지: 연락처·계좌 우회 표기", createdAt: new Date("2026-07-02") });
+
+    const [report] = await repo.listReports();
+    expect(report.reason).toBe("자동 감지: 비속어 · 자동 감지: 연락처·계좌 우회 표기");
+    expect(report.auto).toBe(true);
+  });
+
+  it("사용자 신고가 먼저 있으면 그 사유를 덮어쓰지 않고 자동 감지 사유를 더한다", async () => {
+    const repo = new InMemoryChatRepo();
+    await repo.mergeUserReport({ reporterId: "u1", targetType: "message", targetId: "m1", reason: "욕설이에요", createdAt: new Date("2026-07-01"), status: "open" });
+    await repo.upsertAutoReport({ ...base, reason: "자동 감지: 비속어", createdAt: new Date("2026-07-02") });
+
+    const [report] = await repo.listReports();
+    expect(report.reason).toBe("욕설이에요 · 자동 감지: 비속어");
+    expect(report.reportedBy).toEqual(["u1"]);
+    expect(await repo.countReports()).toBe(1);
   });
 });

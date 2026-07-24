@@ -2,7 +2,7 @@ import { Server, type Socket } from "socket.io";
 import { createServer, type Server as HttpServer } from "node:http";
 import { authenticateSocket } from "./auth";
 import { getChatRepo, type ChatRepo } from "@/features/chat/repo";
-import { sendMessage, type SendMessageInput } from "@/features/chat/service";
+import { sendMessage, type SendMessageInput, type DeliveredMessage } from "@/features/chat/service";
 import { AppError } from "@/features/_shared/error";
 import { getEnv } from "@/features/_shared/env";
 
@@ -29,6 +29,25 @@ function roomFor(conversationId: string): string {
 
 function userIdOf(socket: Socket): string {
   return (socket.data as SocketData).userId;
+}
+
+/**
+ * 받는 사람 기준으로 다듬은 메시지 — REST(GET/POST .../messages)가 내려주는 모양과 똑같다.
+ * senderId(상대의 원본 userId)는 싣지 않고, 서버가 각 소켓의 인증된 userId로 계산한 mine만 넣는다.
+ * rawText(마스킹 전 원문)는 애초에 DeliveredMessage에 없다 — 여기서도 필드를 하나씩 골라 담아 새어 나갈 길을 없앤다.
+ */
+function toMessageView(message: DeliveredMessage, userId: string) {
+  return {
+    _id: message._id,
+    conversationId: message.conversationId,
+    kind: message.kind,
+    text: message.text,
+    imagePath: message.imagePath,
+    masked: message.masked,
+    createdAt: message.createdAt,
+    mine: message.senderId === userId,
+    ...(message.sensitive?.length ? { sensitive: message.sensitive } : {}),
+  };
 }
 
 export function createWsServer(options: WsServerOptions = {}) {
@@ -83,7 +102,12 @@ export function createWsServer(options: WsServerOptions = {}) {
             imagePath: payload?.imagePath,
           };
           const delivered = await sendMessage(repo, userId, payload?.conversationId, input);
-          io.to(roomFor(payload.conversationId)).emit("message", delivered);
+          // room 전체에 한 번에 쏘면 원본 그대로(senderId 포함) 나가므로, 소켓별로 mine을 계산해 따로 보낸다.
+          // room에 들어와 있는 소켓만 대상이라 참여자 격리(엿듣기 방지)는 그대로 유지된다.
+          const sockets = await io.in(roomFor(payload.conversationId)).fetchSockets();
+          for (const target of sockets) {
+            target.emit("message", toMessageView(delivered, (target.data as SocketData).userId));
+          }
         } catch (err) {
           if (err instanceof AppError) {
             socket.emit("error", { code: err.code });

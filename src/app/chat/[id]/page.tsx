@@ -38,7 +38,6 @@ export default async function ChatRoomPage({ params }: { params: Promise<{ id: s
     <main className="flex flex-1 flex-col items-center py-12">
       <ChatRoom
         conversationId={conversation._id}
-        currentUserId={current.userId}
         otherNickname={other?.nickname ?? ""}
         productId={conversation.productId}
         productTitle={product?.title}

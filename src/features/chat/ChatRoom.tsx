@@ -20,19 +20,19 @@ export interface ChatMessageView {
   imagePath?: string;
   masked: boolean;
   createdAt: string;
+  /**
+   * 전화번호·계좌로 보이는 구간(서버가 표시). 화면에서 밑줄로 강조한다.
+   * digits는 그 구간에서 읽어낸 숫자만 모은 값 — `영1영-5O14`처럼 바꿔 쓴 표기도 사기 이력 조회에 그대로 쓸 수 있다.
+   */
+  sensitive?: { start: number; end: number; kind: "phone" | "account"; evasive: boolean; digits: string }[];
 }
 
-/** WS(진행 개선)는 out-of-scope 서버가 원본 Message(senderId 포함)를 그대로 브로드캐스트한다 — REST와 형태를 맞추기 위해 수신 시 변환한다. */
-interface WsIncomingMessage {
-  _id: string;
-  conversationId: string;
-  senderId: string;
-  kind: "text" | "image";
-  text?: string;
-  imagePath?: string;
-  masked: boolean;
-  createdAt: string;
-}
+/**
+ * WS 실시간 수신 메시지 — REST와 같은 모양이다.
+ * 서버가 각 소켓의 인증된 userId로 mine을 계산해 내려주므로 senderId(상대의 원본 userId)는 오지 않고,
+ * 클라이언트도 누가 보냈는지 직접 따질 필요가 없다.
+ */
+type WsIncomingMessage = ChatMessageView;
 
 /** 신고 사유 — 자유 입력 대신 고르게 한다(관리자 분류가 쉬워지고, 사용자도 빠르다). */
 const REPORT_REASONS = [
@@ -57,6 +57,26 @@ const ERROR_KEYS: Record<string, string> = {
   UPLOAD_FAILED: "invalidImage",
 };
 
+/** 전화번호·계좌로 보이는 구간에 밑줄을 그어 눈에 띄게 한다(내용은 그대로 보여준다). */
+function renderWithSensitive(m: ChatMessageView) {
+  const text = m.text ?? "";
+  const spans = (m.sensitive ?? []).slice().sort((a, b) => a.start - b.start);
+  if (spans.length === 0) return text;
+  const out: React.ReactNode[] = [];
+  let cursor = 0;
+  spans.forEach((s, i) => {
+    if (s.start > cursor) out.push(text.slice(cursor, s.start));
+    out.push(
+      <span key={i} className="underline decoration-2 underline-offset-2">
+        {text.slice(s.start, s.end)}
+      </span>,
+    );
+    cursor = s.end;
+  });
+  if (cursor < text.length) out.push(text.slice(cursor));
+  return out;
+}
+
 async function readErrorCode(res: Response): Promise<string | undefined> {
   const body = await res.json().catch(() => ({ code: undefined }));
   return (body as { code?: string }).code;
@@ -64,8 +84,6 @@ async function readErrorCode(res: Response): Promise<string | undefined> {
 
 export interface ChatRoomProps {
   conversationId: string;
-  /** 내 자신의 userId — 실시간(WS) 수신 메시지의 mine을 계산하는 데만 쓰이며 렌더링되지 않는다. */
-  currentUserId: string;
   otherNickname: string;
   productId: string;
   productTitle?: string;
@@ -86,7 +104,6 @@ const HISTORY_LIMIT_HINT = 50; // 서버 DEFAULT_MESSAGE_LIMIT과 맞춘 힌트 
 
 export function ChatRoom({
   conversationId,
-  currentUserId,
   otherNickname,
   productId,
   productTitle,
@@ -112,6 +129,10 @@ export function ChatRoom({
   const [profanityWarned, setProfanityWarned] = useState(false);
   const [pendingImage, setPendingImage] = useState<{ file: File; url: string } | null>(null);
   const [leaving, setLeaving] = useState(false);
+
+  // 사기 이력 확인(메시지별) — 확인 중인 메시지 id와, 메시지별 결과 문구.
+  const [fraudChecking, setFraudChecking] = useState<string | null>(null);
+  const [fraudResults, setFraudResults] = useState<Record<string, string>>({});
 
   const [blocked, setBlocked] = useState(initialBlocked);
   const [blockError, setBlockError] = useState<string | null>(null);
@@ -182,6 +203,37 @@ export function ChatRoom({
   }, [conversationId]);
 
   /** 스크롤이 맨 위에 닿으면(또는 버튼으로) 커서 기반으로 이전 메시지를 더 불러온다 — 전체를 한 번에 로드하지 않는다(#3). */
+  /**
+   * 상대가 알려준 번호에 사기 신고 이력이 있는지 확인한다(데모용 흉내 조회).
+   * 서버는 이 대화에서 실제로 오간 번호만 확인해 준다 — 화면에서 표시된 구간을 그대로 보낸다.
+   */
+  async function checkFraud(m: ChatMessageView) {
+    const span = m.sensitive?.[0];
+    if (!span) return;
+    const value = span.digits;
+    setFraudChecking(m._id);
+    try {
+      const res = await fetch("/api/chat/fraud-check", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ conversationId, value }),
+      });
+      if (!res.ok) {
+        setFraudResults((prev) => ({ ...prev, [m._id]: t("fraudCheckFailed") }));
+        return;
+      }
+      const body = (await res.json()) as { reported: boolean; count: number };
+      setFraudResults((prev) => ({
+        ...prev,
+        [m._id]: body.reported ? t("fraudReported", { count: body.count }) : t("fraudClean"),
+      }));
+    } catch {
+      setFraudResults((prev) => ({ ...prev, [m._id]: t("fraudCheckFailed") }));
+    } finally {
+      setFraudChecking(null);
+    }
+  }
+
   async function loadOlder() {
     if (loadingMore || !hasMore || loadingHistory || messages.length === 0) return;
     setLoadingMore(true);
@@ -230,18 +282,7 @@ export function ChatRoom({
         auth: { token: accessToken },
       });
       socket.emit("join", conversationId);
-      socket.on("message", (msg: WsIncomingMessage) =>
-        appendMessage({
-          _id: msg._id,
-          conversationId: msg.conversationId,
-          kind: msg.kind,
-          text: msg.text,
-          imagePath: msg.imagePath,
-          masked: msg.masked,
-          createdAt: msg.createdAt,
-          mine: msg.senderId === currentUserId,
-        }),
-      );
+      socket.on("message", (msg: WsIncomingMessage) => appendMessage(msg));
     })().catch(() => {
       // WS는 최선형(best-effort) 업그레이드 — 실패해도 REST 경로는 계속 동작한다.
     });
@@ -251,7 +292,7 @@ export function ChatRoom({
       socket?.close();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accessToken, conversationId, wsUrl, currentUserId]);
+  }, [accessToken, conversationId, wsUrl]);
 
   async function sendText(event?: React.FormEvent, skipProfanityCheck = false) {
     event?.preventDefault();
@@ -559,7 +600,34 @@ export function ChatRoom({
                   }`}
                 >
                   {m.kind === "text" ? (
-                    <p className="whitespace-pre-wrap text-sm">{m.text}</p>
+                    <>
+                      <p className="whitespace-pre-wrap text-sm">{renderWithSensitive(m)}</p>
+                      {m.sensitive?.length ? (
+                        <div className="mt-1 flex flex-col items-start gap-1">
+                          <p className="text-xs opacity-80">
+                            {m.sensitive.some((s) => s.kind === "phone")
+                              ? t("sensitivePhoneNotice")
+                              : t("sensitiveAccountNotice")}
+                          </p>
+                          {/* 상대가 알려준 번호는 그 자리에서 사기 이력을 확인할 수 있게 한다. */}
+                          {!m.mine && (
+                            <button
+                              type="button"
+                              onClick={() => checkFraud(m)}
+                              disabled={fraudChecking === m._id}
+                              className="text-xs font-medium underline underline-offset-2 disabled:opacity-60"
+                            >
+                              {fraudChecking === m._id ? t("fraudChecking") : t("fraudCheck")}
+                            </button>
+                          )}
+                          {fraudResults[m._id] && (
+                            <p className="text-xs font-medium">
+                              {fraudResults[m._id]} <span className="font-normal opacity-70">({t("fraudMockNote")})</span>
+                            </p>
+                          )}
+                        </div>
+                      ) : null}
+                    </>
                   ) : (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img

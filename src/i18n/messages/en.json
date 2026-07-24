@@ -396,7 +396,15 @@
     "forbidden": "You don't have permission",
     "emptyMessage": "Please enter a message",
     "invalidImage": "Couldn't process that image",
-    "blockedByOtherState": "The other person blocked this chat"
+    "blockedByOtherState": "The other person blocked this chat",
+    "sensitivePhoneNotice": "A phone number was shared. Please use escrow for the trade",
+    "sensitiveAccountNotice": "An account number was shared. Use escrow instead of sending money directly",
+    "fraudCheck": "Check fraud reports",
+    "fraudChecking": "Checking…",
+    "fraudClean": "No reports found. Still, please use escrow",
+    "fraudReported": "{count} fraud report(s) found. Think twice before trading",
+    "fraudCheckFailed": "Cannot check right now. Please try again shortly",
+    "fraudMockNote": "Demo lookup, not a real service"
   },
   "escrow": {
     "listTitle": "Escrow",
@@ -534,6 +542,8 @@
     "dormantDeleteAll": "Delete all",
     "dormantLink": "Clean up dormant chats",
     "autoFlagged": "Auto-detected",
+    "systemReporter": "Auto-detected",
+    "reportsMore": "Load more",
     "loading": "Loading"
   }
 }

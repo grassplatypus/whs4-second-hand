@@ -133,6 +133,33 @@ describe("listReports (닉네임 보강·snapshot 관리자 전용)", () => {
     expect(userReport.targetUserId).toBe("u9"); // 관리자 정지 액션용 대상 id
     expect(msgReport.targetUserId).toBeNull(); // 메시지 신고는 대상 유저 id 없음
   });
+
+  it("자동 신고(reporterId=system)는 사용자 조회를 건너뛰고 시스템 표시만 남긴다", async () => {
+    const repo = new InMemoryChatRepo();
+    await repo.upsertAutoReport({ reporterId: "system", targetType: "message", targetId: "m1", reason: "자동 감지: 비속어", snapshot: "원문", createdAt: new Date("2026-07-20"), status: "open" });
+    await repo.insertReport({ reporterId: "r1", targetType: "message", targetId: "m2", reason: "스팸", createdAt: new Date("2026-07-19"), status: "open" });
+    const findMany = vi.fn().mockResolvedValue([{ id: "r1", nickname: "신고왕" }]);
+    const { db } = fakeDb({ user: { findMany } });
+
+    const views = await listReports(repo, db);
+    const auto = views.find((v) => v.targetLabel === "m1")!;
+    expect(auto.reporterIsSystem).toBe(true);
+    expect(auto.reporterNickname).toBeNull(); // "(탈퇴)"로 새지 않는다
+    // "system"은 실제 유저가 아니므로 조회 대상에 들어가지 않는다.
+    expect(findMany.mock.calls[0][0].where.id.in).toEqual(["r1"]);
+    const normal = views.find((v) => v.targetLabel === "m2")!;
+    expect(normal.reporterIsSystem).toBe(false);
+    expect(normal.reporterNickname).toBe("신고왕");
+  });
+
+  it("페이지네이션 옵션(limit·cursor)을 저장소에 그대로 넘긴다", async () => {
+    const repo = new InMemoryChatRepo();
+    const spy = vi.spyOn(repo, "listReports").mockResolvedValue([]);
+    const { db } = fakeDb({});
+    const opts = { status: "open" as const, limit: 20, cursor: { createdAt: new Date("2026-07-20"), status: "open" as const } };
+    await listReports(repo, db, opts);
+    expect(spy).toHaveBeenCalledWith(opts);
+  });
 });
 
 describe("resolveReport", () => {

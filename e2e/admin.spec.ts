@@ -219,3 +219,54 @@ test("분쟁 목록: 관리자가 분쟁 에스크로를 보고 조정(release)�
   await sellerCtx.close();
   await buyerCtx.close();
 });
+
+test("휴면 채팅방: 양쪽이 나가야 목록에 뜨고, 관리자만 지울 수 있다", async ({ browser }) => {
+  const adminCtx = await browser.newContext({ locale: "ko-KR" });
+  const sellerCtx = await browser.newContext({ locale: "ko-KR" });
+  const buyerCtx = await browser.newContext({ locale: "ko-KR" });
+
+  try {
+    const adminNick = unique();
+    await registerAndLogin(adminCtx.request, adminNick);
+    setAdmin(adminNick);
+
+    await registerAndLogin(sellerCtx.request, unique());
+    await setLocation(sellerCtx.request, "서울특별시", "강남구", "역삼동");
+    await registerAndLogin(buyerCtx.request, unique());
+
+    const productId = await createProduct(sellerCtx.request, "휴면방 테스트 상품");
+    const start = await buyerCtx.request.post("/api/chat/conversations", {
+      data: { productId, firstText: "구매 문의드려요" },
+    });
+    expect(start.status()).toBe(201);
+    const conversationId: string = (await start.json()).conversationId;
+
+    // 일반 사용자는 휴면 방 목록에 접근할 수 없다.
+    expect((await buyerCtx.request.get("/api/admin/chat-rooms")).status()).toBe(403);
+
+    const dormantIds = async (): Promise<string[]> => {
+      const res = await adminCtx.request.get("/api/admin/chat-rooms");
+      expect(res.ok()).toBeTruthy();
+      return (await res.json()).rooms.map((r: { conversationId: string }) => r.conversationId);
+    };
+
+    // 한 명만 나간 방은 아직 휴면이 아니다.
+    expect((await buyerCtx.request.post(`/api/chat/conversations/${conversationId}/leave`)).ok()).toBeTruthy();
+    expect(await dormantIds()).not.toContain(conversationId);
+
+    // 양쪽 다 나가면 휴면 방이 된다.
+    expect((await sellerCtx.request.post(`/api/chat/conversations/${conversationId}/leave`)).ok()).toBeTruthy();
+    expect(await dormantIds()).toContain(conversationId);
+
+    // 관리자가 지우면 목록에서 사라진다.
+    const del = await adminCtx.request.delete("/api/admin/chat-rooms", {
+      data: { ids: [conversationId] },
+    });
+    expect(del.ok()).toBeTruthy();
+    expect(await dormantIds()).not.toContain(conversationId);
+  } finally {
+    await adminCtx.close();
+    await sellerCtx.close();
+    await buyerCtx.close();
+  }
+});

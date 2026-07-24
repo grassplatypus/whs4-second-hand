@@ -7,7 +7,7 @@ export default async function ProductsPage() {
   const t = await getTranslations("product");
 
   return (
-    <PageContainer size="lg" className="items-center">
+    <PageContainer size="lg">
       <PageHeader title={t("listTitle")} />
       <ProductList />
     </PageContainer>

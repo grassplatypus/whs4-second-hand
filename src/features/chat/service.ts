@@ -120,6 +120,9 @@ export async function startConversation(
   });
   await repo.updateLastMessageAt(conversation._id, now);
   if (hit) await flagProfanityForAdmin(repo, message);
+  // 첫 접촉에서 연락처·계좌를 흘리는 경우가 가장 잦다 — 여기서도 같은 검사를 돌린다.
+  const firstScan = scanSensitive(firstTextValidated);
+  if (firstScan.spans.length > 0) await flagSensitiveForAdmin(repo, message, firstScan);
 
   return { conversationId: conversation._id, message: toDelivered(message) };
 }
@@ -168,7 +171,7 @@ function assertValidReason(raw: string): string {
 async function flagSensitiveForAdmin(
   repo: ChatRepo,
   message: { _id: string; rawText?: string; text?: string },
-  scan: { spans: { kind: "phone" | "account"; evasive: boolean }[]; hasEvasive: boolean },
+  scan: { spans: { kind: "phone" | "account"; evasive: boolean; digits: string }[]; hasEvasive: boolean },
 ): Promise<void> {
   const raw = message.rawText ?? message.text ?? "";
   const reasons: string[] = [];
@@ -252,6 +255,7 @@ export async function sendMessage(
       createdAt: now,
     });
     await repo.updateLastMessageAt(conversationId, now);
+    await repo.clearLeft(conversationId, senderId);
     return toDelivered(message);
   }
 
@@ -268,6 +272,8 @@ export async function sendMessage(
     createdAt: now,
   });
   await repo.updateLastMessageAt(conversationId, now);
+  // 나갔던 방에 다시 말을 걸었다면 나간 표시를 지운다 — 내 목록에도 다시 보여야 한다.
+  await repo.clearLeft(conversationId, senderId);
   // 비속어면 관리자에게만 조용히 기록한다(보낸 사람에겐 알리지 않는다).
   if (hit) await flagProfanityForAdmin(repo, message);
   // 연락처·계좌가 오갔고 위험 신호(우회 표기·사기 이력)가 있으면 역시 조용히 기록한다.
@@ -362,6 +368,44 @@ export async function listDormantConversations(repo: ChatRepo): Promise<DormantC
     productId: c.productId,
     lastMessageAt: c.lastMessageAt,
   }));
+}
+
+/**
+ * 상대가 알려준 번호의 사기 신고 이력을 확인한다(데모: 흉내 조회).
+ * 아무 번호나 조회하는 창구가 되지 않게, 그 대화에서 실제로 오간 번호만 확인해 준다.
+ */
+export async function checkConversationNumber(
+  repo: ChatRepo,
+  userId: string,
+  conversationId: string,
+  value: string,
+): Promise<{ reported: boolean; count: number }> {
+  const conversation = await repo.getConversation(conversationId);
+  if (!conversation) throw conversationNotFound();
+  assertParticipant(conversation, userId);
+
+  const digits = value.replace(/\D/g, "");
+  if (digits.length < 8 || digits.length > 16) {
+    throw new AppError("INVALID_INPUT", "번호를 다시 확인해 주세요.", 400);
+  }
+
+  // 이 대화의 메시지에서 감지된 번호들과 대조한다.
+  const messages = await repo.listMessages(conversationId, { limit: 200 });
+  let matched: { kind: "phone" | "account" } | undefined;
+  for (const m of messages) {
+    if (!m.text) continue;
+    const span = scanSensitive(m.text).spans.find((s) => s.digits === digits);
+    if (span) {
+      matched = { kind: span.kind };
+      break;
+    }
+  }
+  if (!matched) {
+    throw new AppError("NOT_IN_CONVERSATION", "이 대화에서 오간 번호만 확인할 수 있어요.", 400);
+  }
+
+  const result = await getFraudLookup().check(matched.kind, digits);
+  return { reported: result.reported, count: result.count };
 }
 
 /** 휴면 방 삭제(관리자용) — 휴면이 아닌 방은 지우지 않는다. */

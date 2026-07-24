@@ -101,6 +101,31 @@ describe("ADMIN 정상 동작 + 인증 adminId 전달", () => {
     expect(listReports).toHaveBeenCalledWith(expect.anything(), expect.anything(), { status: "open" });
   });
 
+  it("reports: 더 보기 커서(limit·cursor·cursorStatus)를 파싱해 넘긴다", async () => {
+    currentUserFromRefresh.mockResolvedValue({ userId: "admin-1" });
+    listReports.mockResolvedValue([]);
+    const req = new Request(
+      "http://localhost/api/admin/reports?status=open&limit=20&cursor=2026-07-20T00:00:00.000Z&cursorStatus=open",
+      { headers: { cookie: COOKIE } },
+    );
+    await reportsGet(req);
+    expect(listReports).toHaveBeenCalledWith(expect.anything(), expect.anything(), {
+      status: "open",
+      limit: 20,
+      cursor: { createdAt: new Date("2026-07-20T00:00:00.000Z"), status: "open" },
+    });
+  });
+
+  it("reports: 깨진 커서·이상한 limit은 무시한다", async () => {
+    currentUserFromRefresh.mockResolvedValue({ userId: "admin-1" });
+    listReports.mockResolvedValue([]);
+    const req = new Request("http://localhost/api/admin/reports?limit=-5&cursor=어제&cursorStatus=nope", {
+      headers: { cookie: COOKIE },
+    });
+    await reportsGet(req);
+    expect(listReports).toHaveBeenCalledWith(expect.anything(), expect.anything(), undefined);
+  });
+
   it("suspend: 인증 adminId를 행위자로(바디 위조 무시)", async () => {
     currentUserFromRefresh.mockResolvedValue({ userId: "real-admin" });
     suspendUser.mockResolvedValue(undefined);

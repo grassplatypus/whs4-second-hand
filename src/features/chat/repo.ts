@@ -56,10 +56,44 @@ export interface Report {
   reportedBy?: string[];
 }
 
+/** 자동 감지 신고의 신고자 id — 실제 유저가 아니라서 사용자 조회를 하면 안 된다. */
+export const SYSTEM_REPORTER_ID = "system";
+
+/** 신고 사유를 잇는 구분자 — 자동 감지와 사용자 신고가 같은 규칙을 쓴다. */
+const REASON_SEPARATOR = " · ";
+
+/**
+ * 같은 대상에 사유가 겹칠 때 중복 없이 이어 붙인다.
+ * 이미 있는 문구와 같으면 다시 붙이지 않고, 다른 문구면 " · "로 잇는다.
+ * (들어오는 사유가 이미 여러 개 이어진 문자열이어도 조각 단위로 비교한다.)
+ */
+export function mergeReportReasons(existing: string | undefined, incoming: string): string {
+  const reasons = new Set((existing ?? "").split(REASON_SEPARATOR).filter(Boolean));
+  for (const part of incoming.split(REASON_SEPARATOR)) {
+    if (part) reasons.add(part);
+  }
+  return [...reasons].join(REASON_SEPARATOR);
+}
+
+/** 신고 목록 페이지네이션 커서 — 마지막으로 받은 신고의 위치를 그대로 가리킨다. */
+export interface ReportCursor {
+  /** 마지막으로 받은 신고의 createdAt. */
+  createdAt: Date;
+  /** 그 신고의 상태. open 우선 정렬을 이어가려면 순위도 알아야 한다. */
+  status: ReportStatus;
+}
+
 export interface ListReportsOptions {
   /** 특정 상태만(미지정이면 전체). 목록은 항상 open 우선·최신순. */
   status?: ReportStatus;
   limit?: number;
+  /** 이 위치보다 뒤(더 오래된 쪽)만 반환 — "더 보기"용. */
+  cursor?: ReportCursor;
+}
+
+/** open 우선 정렬 순위 — Mongo aggregation의 `_openRank`와 같은 규칙. */
+function openRank(status: ReportStatus): number {
+  return status === "open" ? 0 : 1;
 }
 
 export type NewConversation = Omit<Conversation, "_id">;
@@ -104,6 +138,8 @@ export interface ChatRepo {
   markRead(conversationId: string, userId: string, at: Date): Promise<void>;
   /** 방을 나간 시각을 기록한다(상대에게는 그대로 남는다). */
   markLeft(conversationId: string, userId: string, at: Date): Promise<void>;
+  /** 나갔던 사람이 다시 말을 걸면 나간 표시를 지운다 — 그 사람 목록에 방이 정상으로 돌아온다. */
+  clearLeft(conversationId: string, userId: string): Promise<void>;
   /** 특정 시각 이후 상대가 보낸 메시지 수 — 안 읽은 수 뱃지에 쓴다. */
   countUnread(conversationId: string, userId: string, since: Date | undefined): Promise<number>;
   /** 양쪽 모두 나갔고 그 뒤로 새 메시지가 없는 방(휴면) — 관리자만 지울 수 있다. */
@@ -205,6 +241,8 @@ export class InMemoryChatRepo implements ChatRepo {
     );
     if (existing) {
       existing.auto = true;
+      // 같은 문구면 다시 붙이지 않고, 다른 문구면 이어 붙인다(사용자 신고와 같은 규칙).
+      existing.reason = mergeReportReasons(existing.reason, report.reason);
       existing.snapshot = existing.snapshot ?? report.snapshot;
       return;
     }
@@ -218,9 +256,7 @@ export class InMemoryChatRepo implements ChatRepo {
     if (existing) {
       existing.reportedBy = [...new Set([...(existing.reportedBy ?? []), report.reporterId])];
       // 기존 사유(자동 감지 포함)는 지우지 않고 덧붙인다 — 먼저 남은 증거를 덮어쓰지 못하게.
-      const reasons = new Set(existing.reason.split(" · ").filter(Boolean));
-      reasons.add(report.reason);
-      existing.reason = [...reasons].join(" · ");
+      existing.reason = mergeReportReasons(existing.reason, report.reason);
       existing.snapshot = existing.snapshot ?? report.snapshot;
       return;
     }
@@ -241,6 +277,13 @@ export class InMemoryChatRepo implements ChatRepo {
     if (c.sellerId === userId) c.sellerLeftAt = at;
   }
 
+  async clearLeft(conversationId: string, userId: string): Promise<void> {
+    const c = this.conversations.find((x) => x._id === conversationId);
+    if (!c) return;
+    if (c.buyerId === userId) delete c.buyerLeftAt;
+    if (c.sellerId === userId) delete c.sellerLeftAt;
+  }
+
   async countUnread(conversationId: string, userId: string, since: Date | undefined): Promise<number> {
     return this.messages.filter(
       (m) =>
@@ -254,9 +297,10 @@ export class InMemoryChatRepo implements ChatRepo {
     return this.conversations
       .filter((c) => {
         if (!c.buyerLeftAt || !c.sellerLeftAt) return false;
-        const later = c.buyerLeftAt > c.sellerLeftAt ? c.buyerLeftAt : c.sellerLeftAt;
-        // 둘 다 나간 뒤로 새 메시지가 없다(같은 밀리초 도착까지 "그 전"으로 본다).
-        return c.lastMessageAt.getTime() <= later.getTime();
+        // 먼저 나간 쪽 기준이다. 그 뒤에 온 메시지가 있으면 그 사람 목록에는 방이 다시 떠 있으므로
+        // 아직 버려진 방이 아니다(같은 밀리초 도착까지 "그 전"으로 본다).
+        const earlier = c.buyerLeftAt < c.sellerLeftAt ? c.buyerLeftAt : c.sellerLeftAt;
+        return c.lastMessageAt.getTime() <= earlier.getTime();
       })
       .map((c) => ({ ...c }));
   }
@@ -269,10 +313,22 @@ export class InMemoryChatRepo implements ChatRepo {
   }
 
   async listReports(opts?: ListReportsOptions): Promise<Report[]> {
-    const rank = (s: ReportStatus) => (s === "open" ? 0 : 1); // open을 항상 앞으로
     let rows = this.reports.slice();
     if (opts?.status) rows = rows.filter((r) => r.status === opts.status);
-    rows.sort((a, b) => rank(a.status) - rank(b.status) || b.createdAt.getTime() - a.createdAt.getTime());
+    // open을 항상 앞으로, 그다음 최신순.
+    rows.sort(
+      (a, b) => openRank(a.status) - openRank(b.status) || b.createdAt.getTime() - a.createdAt.getTime(),
+    );
+    if (opts?.cursor) {
+      // 정렬 기준(순위 → 최신순)에서 커서보다 뒤에 있는 것만 남긴다.
+      const cursorRank = openRank(opts.cursor.status);
+      const cursorTime = opts.cursor.createdAt.getTime();
+      rows = rows.filter(
+        (r) =>
+          openRank(r.status) > cursorRank ||
+          (openRank(r.status) === cursorRank && r.createdAt.getTime() < cursorTime),
+      );
+    }
     return (opts?.limit ? rows.slice(0, opts.limit) : rows).map((r) => ({ ...r }));
   }
 
@@ -396,15 +452,25 @@ export class MongoChatRepo implements ChatRepo {
   async upsertAutoReport(report: NewReport): Promise<void> {
     const db = await getChatDb();
     const col = db.collection<Report>(COLLECTIONS.reports);
-    // 같은 대상의 열린 신고가 있으면 auto 표시만 올리고, 없으면 새로 만든다.
-    // ($set과 $setOnInsert가 같은 필드를 건드리면 Mongo가 거부하므로 두 단계로 나눈다.)
-    const res = await col.updateOne(
-      { targetType: report.targetType, targetId: report.targetId, status: "open" },
-      { $set: { auto: true, snapshot: report.snapshot } },
-    );
-    if (res.matchedCount === 0) {
-      await col.insertOne({ _id: randomUUID(), ...report, auto: true });
+    // 같은 대상의 열린 신고가 있으면 사유를 합치고, 없으면 새로 만든다.
+    const existing = await col.findOne({
+      targetType: report.targetType,
+      targetId: report.targetId,
+      status: "open",
+    });
+    if (existing) {
+      // 이미 있는 문구는 다시 붙이지 않는다 — 같은 감지가 여러 번 걸려도 사유가 불어나지 않게.
+      const update: Partial<Report> = {
+        auto: true,
+        reason: mergeReportReasons(existing.reason, report.reason),
+      };
+      // 먼저 남은 증거(스냅샷)를 덮어쓰지 않는다.
+      const snapshot = existing.snapshot ?? report.snapshot;
+      if (snapshot !== undefined) update.snapshot = snapshot;
+      await col.updateOne({ _id: existing._id }, { $set: update });
+      return;
     }
+    await col.insertOne({ _id: randomUUID(), ...report, auto: true });
   }
 
   async mergeUserReport(report: NewReport): Promise<void> {
@@ -417,11 +483,12 @@ export class MongoChatRepo implements ChatRepo {
     });
     if (existing) {
       // 기존 사유(자동 감지 포함)를 덮어쓰지 않고 합친다 — 먼저 남은 증거 보존.
-      const reasons = new Set((existing.reason ?? "").split(" · ").filter(Boolean));
-      reasons.add(report.reason);
       await col.updateOne(
         { _id: existing._id },
-        { $set: { reason: [...reasons].join(" · ") }, $addToSet: { reportedBy: report.reporterId } },
+        {
+          $set: { reason: mergeReportReasons(existing.reason, report.reason) },
+          $addToSet: { reportedBy: report.reporterId },
+        },
       );
       return;
     }
@@ -442,6 +509,13 @@ export class MongoChatRepo implements ChatRepo {
     await col.updateOne({ _id: conversationId, sellerId: userId }, { $set: { sellerLeftAt: at } });
   }
 
+  async clearLeft(conversationId: string, userId: string): Promise<void> {
+    const db = await getChatDb();
+    const col = db.collection<Conversation>(COLLECTIONS.conversations);
+    await col.updateOne({ _id: conversationId, buyerId: userId }, { $unset: { buyerLeftAt: "" } });
+    await col.updateOne({ _id: conversationId, sellerId: userId }, { $unset: { sellerLeftAt: "" } });
+  }
+
   async countUnread(conversationId: string, userId: string, since: Date | undefined): Promise<number> {
     const db = await getChatDb();
     const filter: Filter<Message> = { conversationId, senderId: { $ne: userId } };
@@ -451,14 +525,15 @@ export class MongoChatRepo implements ChatRepo {
 
   async listDormantConversations(): Promise<Conversation[]> {
     const db = await getChatDb();
-    // 둘 다 나갔고, 마지막 메시지가 "나중에 나간 시각"보다 이르거나 같은 방.
+    // 둘 다 나갔고, "먼저 나간 시각" 이후로 새 메시지가 없는 방.
+    // 나중에 온 메시지가 있으면 먼저 나간 사람 목록에 방이 다시 떠 있으므로 지우면 안 된다.
     return db
       .collection<Conversation>(COLLECTIONS.conversations)
       .aggregate<Conversation>([
         { $match: { buyerLeftAt: { $ne: null }, sellerLeftAt: { $ne: null } } },
-        { $addFields: { _laterLeft: { $max: ["$buyerLeftAt", "$sellerLeftAt"] } } },
-        { $match: { $expr: { $lte: ["$lastMessageAt", "$_laterLeft"] } } },
-        { $project: { _laterLeft: 0 } },
+        { $addFields: { _earlierLeft: { $min: ["$buyerLeftAt", "$sellerLeftAt"] } } },
+        { $match: { $expr: { $lte: ["$lastMessageAt", "$_earlierLeft"] } } },
+        { $project: { _earlierLeft: 0 } },
       ])
       .toArray();
   }
@@ -477,10 +552,24 @@ export class MongoChatRepo implements ChatRepo {
     // 오래된 미처리(open) 신고가 최신 처리완료 건에 밀려 잘려나갈 수 있다.
     const pipeline: object[] = [];
     if (opts?.status) pipeline.push({ $match: { status: opts.status } });
-    pipeline.push(
-      { $addFields: { _openRank: { $cond: [{ $eq: ["$status", "open"] }, 0, 1] } } },
-      { $sort: { _openRank: 1, createdAt: -1 } },
-    );
+    pipeline.push({ $addFields: { _openRank: { $cond: [{ $eq: ["$status", "open"] }, 0, 1] } } });
+    if (opts?.cursor) {
+      // 커서는 정렬 기준(_openRank → createdAt)을 그대로 따라간다.
+      // 순위가 더 뒤이거나, 순위가 같으면서 더 오래된 건만 남긴다.
+      const cursorRank = openRank(opts.cursor.status);
+      const cursorAt = opts.cursor.createdAt;
+      pipeline.push({
+        $match: {
+          $expr: {
+            $or: [
+              { $gt: ["$_openRank", cursorRank] },
+              { $and: [{ $eq: ["$_openRank", cursorRank] }, { $lt: ["$createdAt", cursorAt] }] },
+            ],
+          },
+        },
+      });
+    }
+    pipeline.push({ $sort: { _openRank: 1, createdAt: -1 } });
     if (opts?.limit) pipeline.push({ $limit: opts.limit });
     pipeline.push({ $project: { _openRank: 0 } });
     return db.collection<Report>(COLLECTIONS.reports).aggregate<Report>(pipeline).toArray();
