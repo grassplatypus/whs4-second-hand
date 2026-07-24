@@ -30,6 +30,9 @@ const DIGIT_ALIASES: Record<string, string> = {
   칠: "7", T: "7",
   팔: "8", B: "8",
   구: "9", g: "9", q: "9",
+  // 전각 숫자(０１２…) — 한글·일본어 입력기에서 쉽게 나오고 보통 숫자와 거의 똑같아 보인다.
+  "０": "0", "１": "1", "２": "2", "３": "3", "４": "4",
+  "５": "5", "６": "6", "７": "7", "８": "8", "９": "9",
 };
 
 /** 한글 수사(영/일/이…) — 흔한 일상 글자라 숫자로 읽는 조건이 따로 있다. */
@@ -43,6 +46,11 @@ function toDigit(ch: string): string | null {
 
 function isRealDigit(ch: string): boolean {
   return ch >= "0" && ch <= "9";
+}
+
+/** 전각 숫자(０-９) — 보통 숫자와 거의 똑같아 보이는 다른 문자다. */
+function isFullwidthDigit(ch: string): boolean {
+  return ch >= "０" && ch <= "９";
 }
 
 export interface SensitiveSpan {
@@ -71,8 +79,29 @@ export interface SensitiveScan {
  */
 const INNER_SEPARATORS = new Set([
   "-", ".", "/", "_", "#", "(", ")", "[", "]", "{", "}", "'", '"',
-  "·", "‑", "–", "—", "@", "+", ":", ";",
+  "@", "+", ":", ";", "·", "・",
+  // 줄표 종류가 워낙 많고 생김새가 비슷해서, 눈에 보이는 대로 다 받아 준다.
+  // (한글 'ㅡ'와 가타카나 장음 'ー'는 글자지만 실제로 줄표 대신 흔히 쓰인다.)
+  "‐", "‑", "‒", "–", "—", "―", "−", "﹘", "﹣", "ｰ", "ー", "ㅡ",
 ]);
+
+/**
+ * 전각 기호(－．＠＋…)를 같은 뜻의 반각으로 바꿔서 본다.
+ *
+ * 전각 숫자를 쓰는 사람은 구분자도 전각으로 쓰기 마련이라(`０１０－１２３４－５６７８`),
+ * 숫자만 알아보고 구분자를 모르면 번호가 토막 나서 결국 못 잡는다.
+ */
+function toHalfwidth(ch: string): string {
+  const code = ch.charCodeAt(0);
+  // ！(FF01) ~ ～(FF5E)는 반각 !(0x21) ~ ~(0x7E)와 0xFEE0만큼 떨어져 있다.
+  if (code >= 0xff01 && code <= 0xff5e) return String.fromCharCode(code - 0xfee0);
+  return ch;
+}
+
+/** 숫자 사이에 끼워 넣은 구분자인가(전각으로 쓴 것도 같이 본다). */
+function isInnerSeparator(ch: string): boolean {
+  return INNER_SEPARATORS.has(ch) || INNER_SEPARATORS.has(toHalfwidth(ch));
+}
 
 /** 글자로 보이는 문자(한글·라틴). 이런 글자를 만나면 번호가 끝난 것으로 본다. */
 function isLetterLike(ch: string): boolean {
@@ -96,8 +125,8 @@ function isLetterLike(ch: string): boolean {
  * 반대로 끊기만 하면 "010*1234*5678"을 놓치므로, 끊되 합치기 후보로 남긴다.
  */
 function isChunkBreak(ch: string): boolean {
-  if (isRealDigit(ch)) return false;
-  if (INNER_SEPARATORS.has(ch)) return false;
+  if (toDigit(ch) !== null) return false; // 숫자로 읽히는 문자(전각 숫자·한글 수사 포함)
+  if (isInnerSeparator(ch)) return false;
   if (isLetterLike(ch)) return false;
   return true;
 }
@@ -127,7 +156,9 @@ function looksLikeNumberList(groupSizes: number[]): boolean {
   if (groupSizes.length < 2) return false;
   // 마디가 다섯 이상이면 번호로 쓰지 않는다.
   if (groupSizes.length >= 5) return true;
-  // 길이가 모두 같고 넉넉히 길면 나열이다("15000-20000", "10000-13000-15000").
+  // 마디가 둘뿐이고 둘 다 길면 가격 범위다("15000-20000", "50000-100000").
+  if (groupSizes.length === 2 && groupSizes.every((n) => n >= 4)) return true;
+  // 길이가 모두 같고 넉넉히 길면 나열이다("10000-13000-15000").
   const allSame = groupSizes.every((n) => n === groupSizes[0]);
   return allSame && groupSizes[0] >= 5;
 }
@@ -143,7 +174,7 @@ function hangulRunIsNumeric(text: string, from: number, to: number): boolean {
   if (to - from >= 3) return true;
 
   let after = to;
-  while (after < text.length && INNER_SEPARATORS.has(text[after]!)) after++;
+  while (after < text.length && isInnerSeparator(text[after]!)) after++;
   return after < text.length && isRealDigit(text[after]!);
 }
 
@@ -173,7 +204,10 @@ function scanChunks(text: string): Chunk[] {
   let evasive = false;
   /** 이 덩어리에 진짜 숫자(0-9)가 하나라도 있었는가. */
   let hasRealDigit = false;
-  /** 이 덩어리에 한글 수사가 쓰였는가. */
+  /**
+   * 이 덩어리에 한글 수사나 전각 숫자가 쓰였는가.
+   * 이런 표기는 그 자체로 번호를 바꿔 쓴 흔적이라, 알파벳 별칭과 달리 덩어리를 버리지 않는다.
+   */
   let usedHangul = false;
   /** 덩어리가 끝난 뒤 지금까지 본 문자가 "나누는 자리"뿐이었는가. */
   let onlyBreaksSinceLastChunk = true;
@@ -268,7 +302,10 @@ function scanChunks(text: string): Chunk[] {
         onlyBreaksSinceLastChunk = true;
       }
       if (isRealDigit(ch)) hasRealDigit = true;
-      else evasive = true;
+      else {
+        evasive = true;
+        if (isFullwidthDigit(ch)) usedHangul = true; // 전각 숫자도 "숫자를 바꿔 쓴 것"으로 본다
+      }
       digits += d;
       currentGroup += 1;
       lastIdx = i;
@@ -277,7 +314,7 @@ function scanChunks(text: string): Chunk[] {
 
     // 구분자는 덩어리 안이든 밖이든 그냥 지나간다.
     // (밖에서 끊어 버리면 "010 - 1234 - 5678"처럼 하이픈 양옆을 띄어 쓴 표기를 통째로 놓친다.)
-    if (INNER_SEPARATORS.has(ch)) {
+    if (isInnerSeparator(ch)) {
       closeGroup();
       if (start < 0 && chunks.length > 0) chunks[chunks.length - 1].separatorAfter = true;
       continue;
@@ -289,11 +326,13 @@ function scanChunks(text: string): Chunk[] {
   return chunks;
 }
 
-/** 한국 휴대폰/지역번호로 보이는 자릿수 패턴. */
+/**
+ * 한국 전화번호로 보이는 자릿수 패턴.
+ * 0으로 시작하는 9~11자리는 전화로 본다 — 휴대폰(010)뿐 아니라 지역번호(02·031),
+ * 인터넷전화(070), 안심번호(0505)까지 같은 모양이다.
+ */
 function looksLikePhone(digits: string): boolean {
-  if (digits.length === 11 && digits.startsWith("01")) return true;
-  if (digits.length === 10 && digits.startsWith("0")) return true;
-  if (digits.length === 9 && digits.startsWith("02")) return true;
+  if (digits.length >= 9 && digits.length <= 11 && digits.startsWith("0")) return true;
   // 국가번호를 붙인 표기(+82 10 1234 5678).
   if ((digits.length === 12 || digits.length === 11) && digits.startsWith("82")) return true;
   return false;
@@ -315,10 +354,13 @@ const BANK_NAMES = [
   "신협", "은행", "계좌",
 ];
 
-/** 메시지에 은행 이름(또는 "계좌")이 등장하는가(대소문자 무시). */
+/** 돈을 주고받는 이야기에 나오는 말들 — 이런 말이 있으면 긴 숫자를 계좌로 본다. */
+const MONEY_WORDS = ["입금", "송금", "이체", "보내주", "보내드", "부쳐", "쏴", "결제"];
+
+/** 메시지에 은행 이름이나 돈 이야기가 등장하는가(대소문자 무시). */
 function mentionsBank(text: string): boolean {
   const lower = text.toLowerCase();
-  return BANK_NAMES.some((b) => lower.includes(b));
+  return BANK_NAMES.some((b) => lower.includes(b)) || MONEY_WORDS.some((w) => lower.includes(w));
 }
 
 /**
@@ -328,12 +370,16 @@ function mentionsBank(text: string): boolean {
  * 사기에서 가장 흔한 문장이라 택배 얘기가 나왔다고 계좌 판정을 끄지는 않는다.
  * (알림만 뜨는 기능이라, 놓치는 쪽이 훨씬 위험하다.)
  */
-function classify(digits: string, bankMentioned: boolean): "phone" | "account" | null {
+function classify(digits: string, bankMentioned: boolean, groupSizes: number[]): "phone" | "account" | null {
   if (looksLikePhone(digits)) return "phone";
-  if (looksLikeAccount(digits)) return "account";
-  // 은행 이름이 함께 적혔더라도 10자리는 넘어야 한다 —
-  // 그러지 않으면 "계좌이체는 2026.07.24에" 같은 날짜·금액이 계좌로 잡힌다.
-  if (bankMentioned && digits.length >= 10 && digits.length <= 16) return "account";
+  if (!looksLikeAccount(digits)) return null;
+
+  // 계좌로 보려면 둘 중 하나는 있어야 한다.
+  //  - 돈 얘기(은행 이름·입금·송금 같은 말)가 같이 나오거나
+  //  - 계좌처럼 마디를 나눠 적었거나("3333-01-1234567")
+  // 그러지 않으면 운송장 번호·주문번호 같은 긴 숫자가 죄다 계좌로 잡힌다.
+  if (bankMentioned) return "account";
+  if (groupSizes.length >= 3) return "account";
   return null;
 }
 
@@ -372,7 +418,7 @@ export function scanSensitive(text: string): SensitiveScan {
     //    단 "15000-20000원" 같은 가격 범위는 번호로 보지 않는다.
     const single = looksLikeNumberList(chunks[i].groupSizes)
       ? null
-      : classify(chunks[i].digits, bankMentioned);
+      : classify(chunks[i].digits, bankMentioned, chunks[i].groupSizes);
     if (single) {
       spans.push(toSpan([chunks[i]], single));
       i += 1;
@@ -389,7 +435,7 @@ export function scanSensitive(text: string): SensitiveScan {
       const pieceSizes = group.map((c) => c.digits.length);
       // 조각 길이는 넉넉히 본다("010-1234📞5678"처럼 앞이 길게 붙는 경우가 있다).
       // 대신 합친 결과가 전화번호 형태여야 하고, 숫자를 늘어놓은 것으로 보이면 제외한다.
-      if (looksSplitApart(group, 7) && !looksLikeNumberList(pieceSizes) && looksLikePhone(digits)) {
+      if (looksSplitApart(group, 7) && looksLikePhone(digits)) {
         spans.push(toSpan(group, "phone"));
         i += take;
         matched = true;
@@ -402,7 +448,7 @@ export function scanSensitive(text: string): SensitiveScan {
         looksSplitApart(group, 7) &&
         group.slice(0, -1).every((c) => c.separatorAfter) &&
         !looksLikeNumberList(pieceSizes) &&
-        classify(digits, true) === "account"
+        classify(digits, true, pieceSizes) === "account"
       ) {
         spans.push(toSpan(group, "account"));
         i += take;

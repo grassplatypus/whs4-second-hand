@@ -8,8 +8,9 @@ import { Field, Input, Button } from "@/features/shell/ui";
 /**
  * 로그인 2FA 챌린지. challenge 쿠키(HttpOnly)는 서버가 이미 심어둔 상태라고 가정한다 —
  * 이 컴포넌트는 그 안의 method를 읽을 수 없으므로(그리고 읽을 필요도 없으므로) 코드
- * 입력은 항상 보여주고, "이메일로 코드 받기"도 항상 보여준다(TOTP 챌린지에서 눌러도
- * 서버가 EMAIL이 아니면 조용히 아무 메일도 보내지 않고 {ok:true}만 응답한다).
+ * 입력은 항상 보여주고, "이메일로 코드 받기"도 항상 보여준다.
+ * 앱 코드(TOTP)를 쓰던 사람이 휴대폰을 잃어버렸을 때 들어올 길이 필요해서,
+ * 어떤 방식으로 챌린지가 걸렸든 이 버튼은 실제로 이메일 코드를 보낸다.
  */
 export function TwoFactorChallenge() {
   const t = useTranslations("auth.twofactor");
