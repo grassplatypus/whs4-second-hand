@@ -85,6 +85,8 @@ model User {
   products         Product[]
   escrowsAsBuyer   Escrow[]        @relation("EscrowBuyer")
   escrowsAsSeller  Escrow[]        @relation("EscrowSeller")
+  reviewsWritten   TradeReview[]   @relation("ReviewAuthor")
+  reviewsReceived  TradeReview[]   @relation("ReviewTarget")
 
   @@index([phoneBlindIndex])
 }
@@ -203,13 +205,39 @@ model Escrow {
   fundedAt       DateTime?
   releasedAt     DateTime?
   refundedAt     DateTime?
+  meetupPlace    String? // 직거래 약속 장소(자유 텍스트, 동네 수준)
+  meetupAt       DateTime? // 직거래 약속 시각
   events         EscrowEvent[]
+  reviews        TradeReview[]
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
   @@index([buyerId])
   @@index([sellerId])
   @@index([productId, status])
+}
+
+enum ReviewRating {
+  GOOD // 좋아요
+  OK // 보통
+  BAD // 별로
+}
+
+/** 거래 후기 — 거래 완료(정산) 후 상대에게 남긴다. 공개 프로필에 표시. */
+model TradeReview {
+  id        String       @id @default(cuid())
+  escrowId  String
+  escrow    Escrow       @relation(fields: [escrowId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User         @relation("ReviewAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  targetId  String
+  target    User         @relation("ReviewTarget", fields: [targetId], references: [id], onDelete: Cascade)
+  rating    ReviewRating
+  comment   String?
+  createdAt DateTime     @default(now())
+
+  @@unique([escrowId, authorId]) // 한 거래당 한 사람 한 번
+  @@index([targetId])
 }
 
 model EscrowEvent {
