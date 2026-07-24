@@ -20,11 +20,19 @@ class ConsoleMailer implements Mailer {
 }
 
 let cached: Mailer | null = null;
+let warnedSmtpConfiguredButUnimplemented = false;
+
 export function getMailer(): Mailer {
   if (cached) return cached;
   const env = getEnv();
-  // SMTP_* 있으면 실 메일러(이후 구현). 지금은 목.
-  cached = env.SMTP_HOST ? new ConsoleMailer() : new ConsoleMailer();
+  // TODO: real SMTP transport (scope: 이후). 지금은 SMTP_HOST 설정 여부와 무관하게 항상 콘솔 목이다.
+  if (env.SMTP_HOST && !warnedSmtpConfiguredButUnimplemented) {
+    warnedSmtpConfiguredButUnimplemented = true;
+    console.warn(
+      "[MAILER] SMTP_HOST가 설정돼 있지만 실 SMTP 발송은 아직 구현되지 않았습니다 — 코드는 콘솔로만 나갑니다.",
+    );
+  }
+  cached = new ConsoleMailer();
   return cached;
 }
 

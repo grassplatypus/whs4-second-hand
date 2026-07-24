@@ -337,6 +337,44 @@ describe("completeLoginTwoFactor", () => {
     expect(sessionCreate).not.toHaveBeenCalled();
   });
 
+  it("falls back to a valid LOGIN_2FA email OTP for a TOTP-method challenge (DoD 5: universal email fallback)", async () => {
+    const secret = generateTotpSecret();
+    const codeHash = await bcrypt.hash("111222", 10);
+    const findUnique = vi.fn().mockResolvedValue({ totpSecret: encryptPII(secret) });
+    const emailFindMany = vi.fn().mockResolvedValue([{ id: "otp1", codeHash }]);
+    const sessionCreate = vi.fn().mockResolvedValue({ id: "s1" });
+    const db = fakeDb({ findUnique, emailFindMany, sessionCreate });
+
+    const session = await completeLoginTwoFactor(
+      db,
+      USER_ID,
+      "TOTP",
+      { code: "111222" }, // not a TOTP code — only valid as the emailed LOGIN_2FA code
+      new MemoryMailer(),
+      noMeta,
+    );
+
+    expect(session.refreshToken).toBeDefined();
+    expect(sessionCreate).toHaveBeenCalledTimes(1);
+    expect(emailFindMany.mock.calls[0][0].where.purpose).toBe("LOGIN_2FA");
+    expect(auditEvents(db)).toEqual(["TWO_FACTOR_SUCCESS"]);
+  });
+
+  it("rejects a TOTP-method challenge when the code matches neither TOTP nor a LOGIN_2FA email OTP", async () => {
+    const secret = generateTotpSecret();
+    const codeHash = await bcrypt.hash("111222", 10);
+    const findUnique = vi.fn().mockResolvedValue({ totpSecret: encryptPII(secret) });
+    const emailFindMany = vi.fn().mockResolvedValue([{ id: "otp1", codeHash }]);
+    const sessionCreate = vi.fn();
+    const db = fakeDb({ findUnique, emailFindMany, sessionCreate });
+
+    await expect(
+      completeLoginTwoFactor(db, USER_ID, "TOTP", { code: "999999" }, new MemoryMailer(), noMeta),
+    ).rejects.toMatchObject({ code: "TWO_FACTOR_FAILED", httpStatus: 401 });
+    expect(sessionCreate).not.toHaveBeenCalled();
+    expect(auditEvents(db)).toEqual(["TWO_FACTOR_FAIL"]);
+  });
+
   it("rejects an unknown/garbage method fail-closed, without issuing a session, and audits TWO_FACTOR_FAIL", async () => {
     const findUnique = vi.fn().mockResolvedValue({ totpSecret: null });
     const emailFindMany = vi.fn().mockResolvedValue([]);

@@ -122,6 +122,11 @@ export async function verifyStepUpReauth(db: AuthDb, userId: string, raw: unknow
 /**
  * 로그인 2FA 챌린지 완료. 사용자의 활성 수단(EMAIL/TOTP)에 맞춰 코드를 검증하고,
  * 성공한 경우에만 새 세션을 발급한다.
+ *
+ * 이메일 OTP는 모든 유저의 로그인 폴백이다(DoD 5) — TOTP 유저도 인증기를 잃으면 이메일로
+ * 발송된 LOGIN_2FA 코드로 통과할 수 있다(resend 라우트가 항상 발송). 그래서 TOTP 분기는
+ * TOTP 코드 *또는* 이메일 코드 중 하나만 맞으면 통과한다. 어느 경로로 성공했는지는 호출자에게
+ * 노출하지 않는다(응답·감사 모두 TWO_FACTOR_SUCCESS로 동일).
  */
 export async function completeLoginTwoFactor(
   db: AuthDb,
@@ -141,7 +146,8 @@ export async function completeLoginTwoFactor(
       ok = await verifyEmailOtp(db, userId, "LOGIN_2FA", code);
       break;
     case "TOTP":
-      ok = await verifyTotpFor(db, userId, code);
+      // 이메일 폴백: TOTP 코드가 틀려도 유효한 LOGIN_2FA 이메일 코드면 통과시킨다.
+      ok = (await verifyTotpFor(db, userId, code)) || (await verifyEmailOtp(db, userId, "LOGIN_2FA", code));
       break;
     default:
       ok = false;
