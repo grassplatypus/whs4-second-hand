@@ -74,6 +74,28 @@ describe("InMemoryChatRepo", () => {
     expect(limited.map((m) => m._id)).toEqual([second._id]);
   });
 
+  it("gets a message by id (including rawText), returns null when missing", async () => {
+    const repo = new InMemoryChatRepo();
+    const conversation = await repo.createConversation(makeConversation());
+
+    const inserted = await repo.insertMessage({
+      conversationId: conversation._id,
+      senderId: "buyer-1",
+      kind: "text",
+      text: "**** 이거 얼마예요",
+      rawText: "시발 이거 얼마예요",
+      masked: true,
+      createdAt: new Date(),
+    });
+
+    const found = await repo.getMessage(inserted._id);
+    expect(found?.rawText).toBe("시발 이거 얼마예요");
+    expect(found?.text).toBe("**** 이거 얼마예요");
+
+    const missing = await repo.getMessage("nope");
+    expect(missing).toBeNull();
+  });
+
   it("lists conversations for a participant sorted by lastMessageAt, seen by both buyer and seller", async () => {
     const repo = new InMemoryChatRepo();
     const older = await repo.createConversation(

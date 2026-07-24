@@ -19,6 +19,36 @@ function blocked(): AppError {
   return new AppError("BLOCKED", "차단된 상대와는 대화할 수 없어요.", 403);
 }
 
+function messageNotFound(): AppError {
+  return new AppError("NOT_FOUND", "메시지를 찾을 수 없어요.", 404);
+}
+
+/** 참여자에게 반환하는 메시지 모양 — rawText(마스킹 전 원문)는 절대 포함하지 않는다. */
+export interface DeliveredMessage {
+  _id: string;
+  conversationId: string;
+  senderId: string;
+  kind: "text" | "image";
+  text?: string;
+  imagePath?: string;
+  masked: boolean;
+  createdAt: Date;
+}
+
+/** repo의 Message(rawText 포함 가능)를 참여자 전달용 모양으로 변환한다 — rawText는 여기서 걸러진다. */
+function toDelivered(msg: Message): DeliveredMessage {
+  return {
+    _id: msg._id,
+    conversationId: msg.conversationId,
+    senderId: msg.senderId,
+    kind: msg.kind,
+    text: msg.text,
+    imagePath: msg.imagePath,
+    masked: msg.masked,
+    createdAt: msg.createdAt,
+  };
+}
+
 /** 두 사용자 사이에 어느 방향으로든 차단이 걸려 있는지 확인한다(항상 양방향 체크). */
 async function isEitherBlocked(repo: ChatRepo, userA: string, userB: string): Promise<boolean> {
   const [aBlockedB, bBlockedA] = await Promise.all([repo.isBlocked(userA, userB), repo.isBlocked(userB, userA)]);
@@ -44,7 +74,7 @@ export async function startConversation(
   buyerId: string,
   productId: string,
   firstText: string,
-): Promise<{ conversationId: string; message: Message }> {
+): Promise<{ conversationId: string; message: DeliveredMessage }> {
   const product = await db.product.findFirst({
     where: { id: productId, deletedAt: null },
     select: { id: true, sellerId: true },
@@ -79,12 +109,13 @@ export async function startConversation(
     senderId: buyerId,
     kind: "text",
     text: masked,
+    rawText: firstText,
     masked: hit,
     createdAt: now,
   });
   await repo.updateLastMessageAt(conversation._id, now);
 
-  return { conversationId: conversation._id, message };
+  return { conversationId: conversation._id, message: toDelivered(message) };
 }
 
 export interface SendMessageInput {
@@ -102,7 +133,7 @@ export async function sendMessage(
   senderId: string,
   conversationId: string,
   input: SendMessageInput,
-): Promise<Message> {
+): Promise<DeliveredMessage> {
   const conversation = await repo.getConversation(conversationId);
   if (!conversation) throw conversationNotFound();
 
@@ -127,20 +158,26 @@ export async function sendMessage(
       createdAt: now,
     });
     await repo.updateLastMessageAt(conversationId, now);
-    return message;
+    return toDelivered(message);
   }
 
-  const { masked, hit } = maskProfanity(input.text ?? "");
+  const rawText = input.text ?? "";
+  if (!rawText.trim()) {
+    throw new AppError("EMPTY_MESSAGE", "메시지를 입력해 주세요.", 400);
+  }
+
+  const { masked, hit } = maskProfanity(rawText);
   const message = await repo.insertMessage({
     conversationId,
     senderId,
     kind: "text",
     text: masked,
+    rawText,
     masked: hit,
     createdAt: now,
   });
   await repo.updateLastMessageAt(conversationId, now);
-  return message;
+  return toDelivered(message);
 }
 
 /** 목록/상세에 절대 노출하면 안 되는 필드(이메일/전화/정확 위치 등)를 담지 않는 안전한 요약. */
@@ -177,13 +214,14 @@ export async function listMessages(
   userId: string,
   conversationId: string,
   cursor?: Date,
-): Promise<Message[]> {
+): Promise<DeliveredMessage[]> {
   const conversation = await repo.getConversation(conversationId);
   if (!conversation) throw conversationNotFound();
 
   assertParticipant(conversation, userId);
 
-  return repo.listMessages(conversationId, cursor ? { cursor } : undefined);
+  const messages = await repo.listMessages(conversationId, cursor ? { cursor } : undefined);
+  return messages.map(toDelivered);
 }
 
 export async function blockUser(repo: ChatRepo, userId: string, targetId: string): Promise<void> {
@@ -195,9 +233,8 @@ export async function unblockUser(repo: ChatRepo, userId: string, targetId: stri
 }
 
 /**
- * 메시지 신고 — status는 항상 "open". 스냅샷은 참고용: repo는 messageId로 원본 메시지를
- * 조회하는 메서드를 제공하지 않으므로(저장 시 이미 마스킹된 상태), 여기서는 별도 조회 없이
- * snapshot을 비워 둔다 — 신고 자체(누가/무엇을/왜)는 항상 기록된다.
+ * 메시지 신고 — status는 항상 "open". snapshot은 관리자 심사용 증거로 마스킹 전 원문
+ * (rawText)을 저장한다(없으면 마스킹된 text로 대체). 대상 메시지가 없으면 404.
  */
 export async function reportMessage(
   repo: ChatRepo,
@@ -205,11 +242,15 @@ export async function reportMessage(
   messageId: string,
   reason: string,
 ): Promise<void> {
+  const message = await repo.getMessage(messageId);
+  if (!message) throw messageNotFound();
+
   await repo.insertReport({
     reporterId,
     targetType: "message",
     targetId: messageId,
     reason,
+    snapshot: message.rawText ?? message.text,
     createdAt: new Date(),
     status: "open",
   });
