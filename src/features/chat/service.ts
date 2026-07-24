@@ -125,7 +125,9 @@ export interface SendMessageInput {
 }
 
 /**
- * 대화에 메시지 전송 — 참여자만, 차단 관계는 양방향 확인, 첫 메시지는 이미지 불가.
+ * 대화에 메시지 전송 — 참여자만, 차단 관계는 양방향 확인.
+ * 이미지는 상대방(발신자가 아닌 다른 참여자)이 이 대화에서 메시지를 한 번이라도 보낸 뒤에만 허용된다
+ * (발신자 혼자 여러 번 말해도, 상대가 아직 한 번도 답하지 않았다면 이미지는 계속 막힌다).
  * 텍스트는 항상 마스킹을 거쳐 저장/반환된다.
  */
 export async function sendMessage(
@@ -145,9 +147,8 @@ export async function sendMessage(
   const now = new Date();
 
   if (input.kind === "image") {
-    const count = await repo.countMessages(conversationId);
-    if (count === 0) {
-      throw new AppError("FIRST_MSG_TEXT_ONLY", "첫 메시지는 글로 보내 주세요.", 400);
+    if (!(await repo.hasMessageFrom(conversationId, other))) {
+      throw new AppError("IMAGE_BEFORE_REPLY", "상대가 답하기 전에는 사진을 보낼 수 없어요.", 400);
     }
     const message = await repo.insertMessage({
       conversationId,

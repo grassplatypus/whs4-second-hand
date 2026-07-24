@@ -23,6 +23,7 @@ const ERROR_KEYS: Record<string, string> = {
   FORBIDDEN: "forbidden",
   BLOCKED: "blocked",
   FIRST_MSG_TEXT_ONLY: "firstMsgTextOnly",
+  IMAGE_BEFORE_REPLY: "imageBeforeReply",
   EMPTY_MESSAGE: "emptyMessage",
   INVALID_IMAGE: "invalidImage",
   UPLOAD_FAILED: "invalidImage",
