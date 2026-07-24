@@ -28,7 +28,9 @@ export function LoginForm({ oauthError }: { oauthError?: string } = {}) {
       });
 
       if (!res.ok) return setError(t("failed")); // 실패 사유는 구분해 보여주지 않는다
-      router.push("/");
+      const body = await res.json().catch(() => ({}));
+      // 2FA 계정은 세션 없이 챌린지 쿠키만 심어 200을 준다 — twoFactorRequired일 때는 홈이 아니라 챌린지로.
+      router.push(body?.twoFactorRequired ? "/login/2fa" : "/");
     } catch {
       setError(t("failed"));
     } finally {

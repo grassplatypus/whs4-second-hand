@@ -51,4 +51,26 @@ describe("ConnectionsManager", () => {
     await user.click(screen.getByRole("button", { name: "연결 해제" }));
     expect(await screen.findByText("마지막 로그인 수단이라 해제할 수 없어요")).toBeInTheDocument();
   });
+
+  it("shows StepUpPrompt on 401 STEP_UP_REQUIRED and retries unlink after reauth succeeds", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({ ok: false, status: 401, json: async () => ({ code: "STEP_UP_REQUIRED", message: "x" }) }) // first unlink attempt
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) }) // step-up succeeds
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ ok: true }) }); // retried unlink succeeds
+    vi.stubGlobal("fetch", fetchMock);
+
+    const user = userEvent.setup();
+    renderIt(["GOOGLE"]);
+    await user.click(screen.getByRole("button", { name: "연결 해제" }));
+
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/auth/oauth/google/unlink");
+    expect(await screen.findByRole("heading", { name: ko.auth.twofactor.stepUpTitle })).toBeInTheDocument();
+
+    await user.type(screen.getByLabelText(ko.auth.twofactor.stepUpPassword), "hunter2hunter2");
+    await user.click(screen.getByRole("button", { name: ko.auth.twofactor.stepUpSubmit }));
+
+    await waitFor(() => expect(fetchMock.mock.calls[1][0]).toBe("/api/auth/step-up"));
+    await waitFor(() => expect(fetchMock.mock.calls[2][0]).toBe("/api/auth/oauth/google/unlink"));
+  });
 });

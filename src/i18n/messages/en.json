@@ -37,6 +37,38 @@
       "lastCredential": "This is your last sign-in method and can't be removed",
       "failed": "Social login failed. Please try again",
       "loginRequired": "Please log in first"
+    },
+    "twofactor": {
+      "title": "Two-factor authentication",
+      "disabledState": "Two-factor authentication is off",
+      "enabledTotp": "Two-factor authentication is on (authenticator app)",
+      "enabledEmail": "Two-factor authentication is on (email)",
+      "setupTotp": "Set up with authenticator app",
+      "setupEmail": "Set up with email",
+      "totpInstructions": "Add this to your authenticator app, then enter the code",
+      "emailInstructions": "Enter the code from the email you received",
+      "secretLabel": "Secret key (for manual entry)",
+      "uriLabel": "Setup URI",
+      "code": "Verification code",
+      "confirm": "Confirm",
+      "disable": "Turn off two-factor authentication",
+      "challengeTitle": "Two-factor authentication",
+      "challengeDescription": "Enter the code from the method you set up",
+      "resend": "Send code by email",
+      "resendDone": "Code sent again",
+      "stepUpTitle": "Verify it's you",
+      "stepUpDescription": "For your security, please verify again",
+      "stepUpUsePassword": "Verify with password",
+      "stepUpUseCode": "Verify with code",
+      "stepUpUseEmail": "Verify with email",
+      "stepUpPassword": "Password",
+      "stepUpCode": "Verification code",
+      "stepUpSubmit": "Confirm",
+      "stepUpSendEmail": "Send code by email",
+      "stepUpEmailSent": "Code sent",
+      "failed": "Couldn't verify that. Please try again",
+      "tooSoon": "Please try again in a bit",
+      "stepUpRequired": "Please verify it's you"
     }
   }
 }

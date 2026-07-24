@@ -17,6 +17,11 @@ const schema = z.object({
   GOOGLE_REDIRECT_URI: z.string().optional(),
   OAUTH_STATE_SECRET: z.string().min(16),
   APP_BASE_URL: z.string().default("http://localhost:3000"),
+  TWO_FACTOR_ISSUER: z.string().default("GrassSecondhand"),
+  SMTP_HOST: z.string().optional(),
+  SMTP_PORT: z.coerce.number().int().positive().optional(),
+  SMTP_USER: z.string().optional(),
+  SMTP_PASS: z.string().optional(),
   NODE_ENV: z.enum(["development", "production", "test"]),
 });
 

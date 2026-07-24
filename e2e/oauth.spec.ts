@@ -1,4 +1,7 @@
 import { test, expect } from "@playwright/test";
+// otplib v13은 함수형 API(v12의 `authenticator` 싱글턴 없음) — e2e/twofactor.spec.ts,
+// src/features/auth/twofactor/totp.test.ts와 동일하게 `generateSync({ secret })`을 쓴다.
+import { generateSync } from "otplib";
 
 // 실 DB 필요: docker compose up -d db 후 실행. 목 provider라 실 네트워크 없음.
 // mock_as로 실행마다 고유 신원 → 이전 실행 행과 충돌 없음.
@@ -39,21 +42,52 @@ test("social signup → relogin same user → link second → unlink", async ({ 
   await page.reload();
   await expect(page.getByRole("button", { name: "연결 해제" })).toHaveCount(2); // 카카오+네이버
 
-  // 4) 네이버 해제 성공 (자격증명 2개라 마지막 아님)
+  // 4) 연동 해제는 이제(ext-2) step-up 재인증이 선행돼야 한다 — step_up 쿠키 없이는
+  // last-credential 체크 전에 401 STEP_UP_REQUIRED가 난다. alice는 OAuth만 있는 계정이라
+  // password step-up은 못 쓴다(비밀번호가 없음). 이메일 OTP도 유효한 프로덕션 경로지만
+  // 콘솔 목 메일러라 E2E에서 코드를 읽을 수 없다 — 그래서 TOTP를 새로 켜서 그걸로
+  // step-up한다. TOTP 활성화는 "다음" 로그인부터 2FA 챌린지를 요구할 뿐, 지금 이미 선
+  // 세션(refresh 쿠키)은 그대로 유효하다 — 재로그인하지 않고 같은 세션을 계속 쓴다.
+  const totpStart = await context.request.post("/api/auth/2fa/totp/start");
+  expect(totpStart.ok()).toBeTruthy();
+  const { secret } = await totpStart.json();
+  const totpConfirm = await context.request.post("/api/auth/2fa/totp/confirm", {
+    data: { code: generateSync({ secret }) },
+  });
+  expect(totpConfirm.ok()).toBeTruthy();
+
+  // step-up 코드는 여기서 새로 생성한다(설정용 코드를 재사용하지 않는다) — TOTP 스텝(30초)이
+  // 그 사이 넘어갔을 수 있어서다.
+  const stepUp = await context.request.post("/api/auth/step-up", {
+    data: { method: "totp", code: generateSync({ secret }) },
+  });
+  expect(stepUp.ok()).toBeTruthy();
+
+  // 5) 네이버 해제 성공 (자격증명 2개라 마지막 아님 + step-up 확보됨)
+  await page.reload();
   await page.getByRole("button", { name: "연결 해제" }).nth(1).click();
   await expect(page.getByRole("button", { name: "연결 해제" })).toHaveCount(1);
 });
 
-test("last-credential unlink is refused", async ({ page }) => {
+test("unlink without step-up is refused (step-up gate)", async ({ page, context }) => {
   const bob = unique();
   await page.goto(`/api/auth/oauth/google/start?mock_as=${bob}`);
   await expect(page).toHaveURL(/\/$/);
-  await page.goto("/settings/connections");
-  await page.getByRole("button", { name: "연결 해제" }).click();
-  // 편차: Next.js가 심는 route-announcer div도 role="alert"라 getByRole("alert")가
-  // strict-mode에서 2개와 충돌한다(e2e/auth.spec.ts와 동일 사례). 문구로 좁힌다.
-  const alert = page.getByRole("alert").filter({ hasText: "마지막 로그인 수단이라 해제할 수 없어요" });
-  await expect(alert).toHaveText("마지막 로그인 수단이라 해제할 수 없어요");
+
+  // ext-2 회귀: unlink 라우트(src/app/api/auth/oauth/[provider]/unlink/route.ts)는
+  // last-credential 가드보다 먼저 step-up 재인증을 확인한다. bob은 구글 신원 하나뿐이라
+  // 원래는 last-credential(409)로 막혀야 하지만, step-up 쿠키가 아예 없으니 그 체크에
+  // 도달하기도 전에 401 STEP_UP_REQUIRED가 난다 — 이 테스트는 그 게이트 자체를 검증한다.
+  //
+  // 참고(src/features/auth/oauth/link.ts의 unlinkIdentity): last-credential 가드는
+  // passwordHash 유무 + AuthIdentity 행 개수만 센다. TOTP는 User.twoFactorMethod
+  // 컬럼일 뿐 AuthIdentity 행이 아니라서, bob이 TOTP를 켜서 step-up을 통과하더라도
+  // 여전히 "자격증명 1개"인 채라 이 구글 신원을 해제하면 LAST_CREDENTIAL(409)이 나야
+  // 정상이다 — 즉 TOTP를 얹는다고 last-credential 게이트를 우회할 수 없다. 여기서는
+  // step-up 게이트 자체만 단독으로 검증한다(더 단순하고 정직한 커버리지).
+  const res = await context.request.post("/api/auth/oauth/google/unlink");
+  expect(res.status()).toBe(401);
+  expect((await res.json()).code).toBe("STEP_UP_REQUIRED");
 });
 
 test("forged callback state is rejected", async ({ page }) => {

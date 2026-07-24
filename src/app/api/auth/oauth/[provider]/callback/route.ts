@@ -7,6 +7,7 @@ import { verifyState, readStateCookie, clearStateCookie } from "@/features/auth/
 import { loginOrRegisterWithOAuth, linkIdentity } from "@/features/auth/oauth/link";
 import { refreshCookie } from "@/features/auth/cookies";
 import { requestMeta } from "@/features/auth/audit";
+import { signChallenge, challengeCookie } from "@/features/auth/twofactor/challenge";
 
 // AppError.code → 리다이렉트 쿼리(사용자에게 코드만 노출, 카탈로그가 문자열 매핑)
 const ERROR_QUERY: Record<string, string> = {
@@ -42,9 +43,15 @@ export async function GET(req: Request, ctx: { params: Promise<{ provider: strin
       return redirect(`${base}/settings/connections?linked=${provider}`);
     }
 
-    const session = await loginOrRegisterWithOAuth(prisma, adapter.provider, info, meta);
+    const result = await loginOrRegisterWithOAuth(prisma, adapter.provider, info, meta);
+    if ("twoFactorRequired" in result) {
+      const token = await signChallenge(result.userId, result.method);
+      const res = redirect(`${base}/login/2fa`);
+      res.headers.append("set-cookie", challengeCookie(token));
+      return res;
+    }
     const res = redirect(`${base}/`);
-    res.headers.append("set-cookie", refreshCookie(session.refreshToken, session.expiresAt));
+    res.headers.append("set-cookie", refreshCookie(result.refreshToken, result.expiresAt));
     return res;
   } catch (err) {
     const q = err instanceof AppError ? (ERROR_QUERY[err.code] ?? "oauth_failed") : "oauth_failed";

@@ -18,19 +18,33 @@ export async function generateNickname(db: AuthDb): Promise<string> {
   throw new AppError("NICKNAME_GEN_FAILED", "잠시 후 다시 시도해 주세요.", 503);
 }
 
+/** 세션 발급 전 단계 마커 — 토큰을 담지 않는다. 2FA 챌린지를 통과해야만 세션이 나간다. */
+export interface OAuthTwoFactorChallengeResult {
+  twoFactorRequired: true;
+  method: string;
+  userId: string;
+}
+
+export type OAuthLoginResult = (IssuedSession & { userId: string }) | OAuthTwoFactorChallengeResult;
+
 export async function loginOrRegisterWithOAuth(
   db: AuthDb,
   provider: ProviderName,
   info: OAuthUserInfo,
   meta: RequestMeta,
-): Promise<IssuedSession & { userId: string }> {
+): Promise<OAuthLoginResult> {
   const identity = await db.authIdentity.findUnique({
     where: { provider_providerUserId: { provider, providerUserId: info.providerUserId } },
-    select: { userId: true, user: { select: { id: true, deletedAt: true } } },
+    select: { userId: true, user: { select: { id: true, deletedAt: true, twoFactorMethod: true } } },
   });
 
   if (identity) {
     if (identity.user.deletedAt) throw new AppError("AUTH_FAILED", "다시 로그인해 주세요.", 401);
+    // 기존 신원 로그인 경로: 2FA가 켜진 계정이면 세션 대신 챌린지를 반환한다 — OAuth로 2FA를 우회하지 못하게 한다.
+    if (identity.user.twoFactorMethod !== "NONE") {
+      await logAuthEvent(db, AUTH_EVENTS.TWO_FACTOR_CHALLENGE, identity.userId, meta);
+      return { twoFactorRequired: true, method: identity.user.twoFactorMethod, userId: identity.userId };
+    }
     const session = await createSession(db, identity.userId);
     await logAuthEvent(db, AUTH_EVENTS.OAUTH_LOGIN, identity.userId, meta);
     return { ...session, userId: identity.userId };

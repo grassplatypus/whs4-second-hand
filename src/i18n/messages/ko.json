@@ -37,6 +37,38 @@
       "lastCredential": "마지막 로그인 수단이라 해제할 수 없어요",
       "failed": "소셜 로그인에 실패했어요. 다시 시도해 주세요",
       "loginRequired": "로그인이 필요해요"
+    },
+    "twofactor": {
+      "title": "2단계 인증",
+      "disabledState": "2단계 인증이 꺼져 있어요",
+      "enabledTotp": "인증 앱으로 2단계 인증이 켜져 있어요",
+      "enabledEmail": "이메일로 2단계 인증이 켜져 있어요",
+      "setupTotp": "인증 앱으로 설정",
+      "setupEmail": "이메일로 설정",
+      "totpInstructions": "인증 앱에 등록하고 코드를 입력해 주세요",
+      "emailInstructions": "받은 이메일의 코드를 입력해 주세요",
+      "secretLabel": "시크릿 키(수동 입력용)",
+      "uriLabel": "등록 URI",
+      "code": "인증 코드",
+      "confirm": "확인",
+      "disable": "2단계 인증 해제",
+      "challengeTitle": "2단계 인증",
+      "challengeDescription": "가입할 때 설정한 방식으로 받은 코드를 입력해 주세요",
+      "resend": "이메일로 코드 받기",
+      "resendDone": "코드를 다시 보냈어요",
+      "stepUpTitle": "본인 확인",
+      "stepUpDescription": "안전한 작업을 위해 다시 확인할게요",
+      "stepUpUsePassword": "비밀번호로 확인",
+      "stepUpUseCode": "인증 코드로 확인",
+      "stepUpUseEmail": "이메일로 확인",
+      "stepUpPassword": "비밀번호",
+      "stepUpCode": "인증 코드",
+      "stepUpSubmit": "확인",
+      "stepUpSendEmail": "이메일로 코드 받기",
+      "stepUpEmailSent": "코드를 보냈어요",
+      "failed": "확인할 수 없어요. 다시 시도해 주세요",
+      "tooSoon": "잠시 후 다시 시도해 주세요",
+      "stepUpRequired": "본인 확인이 필요해요"
     }
   }
 }
