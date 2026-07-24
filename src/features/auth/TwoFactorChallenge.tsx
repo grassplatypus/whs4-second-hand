@@ -34,6 +34,7 @@ export function TwoFactorChallenge() {
 
       if (!res.ok) return setError(t("failed")); // 실패 사유는 구분해 보여주지 않는다
       router.push("/");
+      router.refresh(); // 루트 레이아웃(navbar)이 새 세션을 반영하도록 서버 트리 무효화
     } catch {
       setError(t("failed"));
     } finally {

@@ -7,13 +7,16 @@ import { useTranslations } from "next-intl";
 import { Avatar } from "./Avatar";
 import type { SessionUser } from "./getSessionUser";
 
+/** navbar에는 PII/내부 id 없이 표시에 필요한 최소 정보만 넘긴다. */
+type NavUser = Pick<SessionUser, "nickname" | "role">;
+
 const NAV = [
   { href: "/products", key: "products" },
   { href: "/chat", key: "chat" },
   { href: "/escrow", key: "escrow" },
 ] as const;
 
-export function NavBar({ user }: { user: SessionUser | null }) {
+export function NavBar({ user }: { user: NavUser | null }) {
   const t = useTranslations("nav");
   const pathname = usePathname();
   const router = useRouter();
@@ -61,6 +64,12 @@ export function NavBar({ user }: { user: SessionUser | null }) {
         <div className="ml-auto flex items-center gap-2">
           {user ? (
             <>
+              <Link
+                href="/products/new"
+                className="hidden rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700 sm:inline"
+              >
+                {t("sell")}
+              </Link>
               {user.role === "ADMIN" && (
                 <Link
                   href="/admin"
@@ -139,6 +148,9 @@ export function NavBar({ user }: { user: SessionUser | null }) {
             <div className="my-1 h-px bg-zinc-200 dark:bg-zinc-800" />
             {user ? (
               <>
+                <Link href="/products/new" onClick={() => setOpen(false)} className="rounded-md bg-emerald-600 px-3 py-2 text-center text-sm font-semibold text-white">
+                  {t("sell")}
+                </Link>
                 {user.role === "ADMIN" && (
                   <Link href="/admin" onClick={() => setOpen(false)} className="rounded-md px-3 py-2 text-sm font-medium text-emerald-700 dark:text-emerald-400">
                     {t("admin")}

@@ -33,6 +33,7 @@ export function WithdrawForm() {
       if (res.ok) {
         setNeedsStepUp(false);
         router.push("/");
+        router.refresh(); // 탈퇴 후 navbar가 로그아웃 상태를 반영하도록
         return;
       }
 

@@ -8,7 +8,19 @@ import { getSessionUser } from "@/features/shell/getSessionUser";
 export default async function Home() {
   const t = await getTranslations("home");
   const user = await getSessionUser();
-  const { items } = await searchProducts(prisma, { limit: 8 }).catch(() => ({ items: [] }));
+  const { items: raw } = await searchProducts(prisma, { limit: 8 }).catch(() => ({ items: [] }));
+  // ProductCard(클라이언트)에 넘길 안전 부분집합만 추린다 — createdAt(Date) 등을 RSC 경계 너머로
+  // 직렬화하지 않는다(불필요한 Date 직렬화가 브라우저 크래시로 이어질 수 있어 원천 차단).
+  const items = raw.map((p) => ({
+    id: p.id,
+    title: p.title,
+    price: p.price,
+    category: p.category,
+    status: p.status,
+    thumbnail: p.thumbnail,
+    regionLabel: p.regionLabel,
+    distanceKm: p.distanceKm,
+  }));
 
   return (
     <main className="flex flex-1 flex-col">
