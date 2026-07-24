@@ -21,8 +21,9 @@ services:
     image: mongo:7
     volumes:
       - mongodata:/data/db
-    expose:
-      - "27017"
+    # db와 동일하게 호스트 localhost에만 발행 — 도커 밖 개발/E2E(next dev)가 mongo:27017 대신
+    # localhost:27017로 붙는다(별도 socat 릴레이 불필요). 컨테이너 간 통신도 그대로 동작.
+    ports: ["127.0.0.1:27017:27017"]
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
       interval: 5s
