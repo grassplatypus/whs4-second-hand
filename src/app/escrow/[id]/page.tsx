@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/features/_shared/prisma";
 import { currentUserFromRefresh } from "@/features/auth/session";
 import { REFRESH_COOKIE } from "@/features/auth/cookies";
+import { PageContainer } from "@/features/shell/ui";
 import { EscrowRoom } from "@/features/escrow/EscrowRoom";
 
 /**
@@ -17,8 +18,8 @@ export default async function EscrowRoomPage({ params }: { params: Promise<{ id:
   if (!current) redirect("/login?error=login_required");
 
   return (
-    <main className="flex flex-1 flex-col items-center py-12">
+    <PageContainer className="items-center">
       <EscrowRoom escrowId={id} />
-    </main>
+    </PageContainer>
   );
 }

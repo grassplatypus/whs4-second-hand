@@ -8,5 +8,5 @@ import type { PrismaClient } from "@prisma/client";
 // 상대 닉네임은 escrow→buyer/seller 관계 include로 가져오므로 db.user는 직접 쓰지 않는다.
 export type EscrowDb = Pick<
   PrismaClient,
-  "escrow" | "escrowEvent" | "product" | "$transaction"
+  "escrow" | "escrowEvent" | "product" | "tradeReview" | "$transaction"
 >;

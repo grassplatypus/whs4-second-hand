@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useFormatter, useTranslations } from "next-intl";
-import { Card, PageHeader, Button } from "@/features/shell/ui";
+import { Card, PageHeader, Field, Input, Button } from "@/features/shell/ui";
 import { Avatar } from "@/features/shell/Avatar";
 import { STATUS_BADGE_STYLE, type EscrowStatus } from "./EscrowList";
 
@@ -27,6 +27,9 @@ export interface EscrowDetailView {
   product: { id: string; title: string; status: string };
   events: EscrowEventView[];
   createdAt: string;
+  meetupPlace: string | null;
+  meetupAt: string | null;
+  myReview: { rating: "GOOD" | "OK" | "BAD"; comment: string | null } | null;
 }
 
 /** 서비스가 던지는 코드 → escrow 카탈로그 키. 서버 message 원문은 절대 렌더하지 않는다. */
@@ -43,9 +46,30 @@ const ERROR_KEYS: Record<string, string> = {
   UNAUTHENTICATED: "unauthenticated",
 };
 
+/** 약속 저장은 INVALID_INPUT의 의미가 다르다("금액" 아님) — 그 한 코드만 오버라이드한다. */
+const MEETUP_ERROR_KEYS: Record<string, string> = { ...ERROR_KEYS, INVALID_INPUT: "meetupInvalid" };
+
+/** 거래 후기 라우트의 에러 코드 → review 카탈로그 키(escrow 카탈로그와는 별개 네임스페이스). */
+const REVIEW_ERROR_KEYS: Record<string, string> = {
+  FORBIDDEN: "forbidden",
+  NOT_FOUND: "notFound",
+  INVALID_TRANSITION: "notReleased",
+  INVALID_INPUT: "invalidInput",
+  ALREADY_REVIEWED: "alreadyReviewed",
+  UNAUTHENTICATED: "unauthenticated",
+};
+
 async function readErrorCode(res: Response): Promise<string | undefined> {
   const body = await res.json().catch(() => ({ code: undefined }));
   return (body as { code?: string }).code;
+}
+
+/** ISO 문자열 → <input type="datetime-local">가 받는 로컬 "YYYY-MM-DDTHH:mm". 파싱 실패는 빈 문자열. */
+function toDatetimeLocalValue(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 /** 서버가 주는 날짜 문자열을 안전하게 포맷한다 — 파싱 실패는 "—"로. */
@@ -60,6 +84,8 @@ const textInputClass =
 
 export function EscrowRoom({ escrowId }: { escrowId: string }) {
   const t = useTranslations("escrow");
+  const tReview = useTranslations("review");
+  const tCommon = useTranslations("common");
   const format = useFormatter();
 
   const [detail, setDetail] = useState<EscrowDetailView | null>(null);
@@ -72,6 +98,15 @@ export function EscrowRoom({ escrowId }: { escrowId: string }) {
   const [counterAmount, setCounterAmount] = useState("");
   const [disputing, setDisputing] = useState(false);
   const [disputeNote, setDisputeNote] = useState("");
+
+  const [meetupEditing, setMeetupEditing] = useState(false);
+  const [meetupPlaceInput, setMeetupPlaceInput] = useState("");
+  const [meetupAtInput, setMeetupAtInput] = useState("");
+
+  const [rating, setRating] = useState<"GOOD" | "OK" | "BAD" | null>(null);
+  const [reviewComment, setReviewComment] = useState("");
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
 
   const loadDetail = useCallback(async () => {
     setLoadError(null);
@@ -96,7 +131,7 @@ export function EscrowRoom({ escrowId }: { escrowId: string }) {
     void loadDetail();
   }, [loadDetail]);
 
-  async function runAction(path: string, body?: Record<string, unknown>) {
+  async function runAction(path: string, body?: Record<string, unknown>, errorKeys: Record<string, string> = ERROR_KEYS) {
     if (submitting) return;
     setActionError(null);
     setSubmitting(true);
@@ -108,13 +143,14 @@ export function EscrowRoom({ escrowId }: { escrowId: string }) {
       });
       if (!res.ok) {
         const code = await readErrorCode(res);
-        setActionError(t(ERROR_KEYS[code ?? ""] ?? "failed"));
+        setActionError(t(errorKeys[code ?? ""] ?? "failed"));
         return;
       }
       setCountering(false);
       setCounterAmount("");
       setDisputing(false);
       setDisputeNote("");
+      setMeetupEditing(false);
       // 어떤 행동이든 성공 후 상세를 다시 불러 버튼·타임라인을 갱신한다.
       await loadDetail();
     } catch {
@@ -138,6 +174,48 @@ export function EscrowRoom({ escrowId }: { escrowId: string }) {
     event.preventDefault();
     const note = disputeNote.trim();
     await runAction("/dispute", note ? { note } : undefined);
+  }
+
+  function openMeetupEdit() {
+    setMeetupPlaceInput(detail?.meetupPlace ?? "");
+    setMeetupAtInput(detail?.meetupAt ? toDatetimeLocalValue(detail.meetupAt) : "");
+    setMeetupEditing(true);
+  }
+
+  async function submitMeetup(event: React.FormEvent) {
+    event.preventDefault();
+    const place = meetupPlaceInput.trim();
+    const at = new Date(meetupAtInput);
+    if (!place || !meetupAtInput || Number.isNaN(at.getTime())) {
+      setActionError(t("meetupInvalid"));
+      return;
+    }
+    await runAction("/meetup", { place, at: at.toISOString() }, MEETUP_ERROR_KEYS);
+  }
+
+  async function submitReview(event: React.FormEvent) {
+    event.preventDefault();
+    if (!rating || reviewSubmitting) return;
+    setReviewError(null);
+    setReviewSubmitting(true);
+    try {
+      const comment = reviewComment.trim();
+      const res = await fetch(`/api/escrow/${escrowId}/review`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ rating, ...(comment ? { comment } : {}) }),
+      });
+      if (!res.ok) {
+        const code = await readErrorCode(res);
+        setReviewError(tReview(REVIEW_ERROR_KEYS[code ?? ""] ?? "failed"));
+        return;
+      }
+      await loadDetail();
+    } catch {
+      setReviewError(tReview("failed"));
+    } finally {
+      setReviewSubmitting(false);
+    }
   }
 
   const money = (n: number) => `${format.number(n)}${t("won")}`;
@@ -201,6 +279,57 @@ export function EscrowRoom({ escrowId }: { escrowId: string }) {
               </div>
             </dl>
           </Card>
+
+          {detail.status !== "REQUESTED" && detail.status !== "CANCELLED" && (
+            <Card className="flex flex-col gap-3">
+              <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">{t("meetupTitle")}</h2>
+              {detail.meetupPlace && detail.meetupAt ? (
+                <dl className="flex flex-col gap-1 text-sm">
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-zinc-500 dark:text-zinc-400">{t("meetupPlaceLabel")}</dt>
+                    <dd className="text-zinc-900 dark:text-zinc-50">{detail.meetupPlace}</dd>
+                  </div>
+                  <div className="flex justify-between gap-2">
+                    <dt className="text-zinc-500 dark:text-zinc-400">{t("meetupAtLabel")}</dt>
+                    <dd className="text-zinc-900 dark:text-zinc-50">{formatDate(detail.meetupAt, format)}</dd>
+                  </div>
+                </dl>
+              ) : (
+                <p className="text-sm text-zinc-500 dark:text-zinc-400">{t("meetupEmpty")}</p>
+              )}
+
+              {(detail.status === "ACCEPTED" || detail.status === "FUNDED") && !meetupEditing && (
+                <Button type="button" variant="secondary" className="self-start" onClick={openMeetupEdit} disabled={submitting}>
+                  {detail.meetupPlace ? t("meetupEdit") : t("meetupSet")}
+                </Button>
+              )}
+
+              {meetupEditing && (
+                <form onSubmit={submitMeetup} className="flex flex-col gap-3" noValidate>
+                  <Field label={t("meetupPlaceLabel")}>
+                    <Input
+                      type="text"
+                      value={meetupPlaceInput}
+                      onChange={(e) => setMeetupPlaceInput(e.target.value)}
+                      maxLength={100}
+                      placeholder={t("meetupPlacePlaceholder")}
+                    />
+                  </Field>
+                  <Field label={t("meetupAtLabel")}>
+                    <Input type="datetime-local" value={meetupAtInput} onChange={(e) => setMeetupAtInput(e.target.value)} />
+                  </Field>
+                  <div className="flex gap-2">
+                    <Button type="submit" variant="primary" disabled={submitting}>
+                      {t("meetupSave")}
+                    </Button>
+                    <Button type="button" variant="secondary" onClick={() => setMeetupEditing(false)} disabled={submitting}>
+                      {tCommon("close")}
+                    </Button>
+                  </div>
+                </form>
+              )}
+            </Card>
+          )}
 
           <div className="flex flex-col gap-3">
             {detail.status === "REQUESTED" && detail.myTurn && (
@@ -318,6 +447,55 @@ export function EscrowRoom({ escrowId }: { escrowId: string }) {
             <p role="alert" className="text-sm text-red-600 dark:text-red-400">
               {actionError}
             </p>
+          )}
+
+          {detail.status === "RELEASED" && (
+            <Card className="flex flex-col gap-3">
+              <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">{tReview("writeTitle")}</h2>
+              {detail.myReview ? (
+                <div className="flex flex-col gap-1 text-sm">
+                  <span className="font-medium text-zinc-900 dark:text-zinc-50">
+                    {tReview(`rating.${detail.myReview.rating}`)}
+                  </span>
+                  {detail.myReview.comment && (
+                    <p className="whitespace-pre-wrap text-zinc-600 dark:text-zinc-400">{detail.myReview.comment}</p>
+                  )}
+                </div>
+              ) : (
+                <form onSubmit={submitReview} className="flex flex-col gap-3" noValidate>
+                  <div className="flex flex-wrap gap-2">
+                    {(["GOOD", "OK", "BAD"] as const).map((r) => (
+                      <Button
+                        key={r}
+                        type="button"
+                        variant={rating === r ? "primary" : "secondary"}
+                        onClick={() => setRating(r)}
+                        disabled={reviewSubmitting}
+                      >
+                        {tReview(`rating.${r}`)}
+                      </Button>
+                    ))}
+                  </div>
+                  <Field label={tReview("commentLabel")}>
+                    <textarea
+                      value={reviewComment}
+                      onChange={(e) => setReviewComment(e.target.value)}
+                      maxLength={500}
+                      className={textInputClass}
+                      placeholder={tReview("commentPlaceholder")}
+                    />
+                  </Field>
+                  <Button type="submit" variant="primary" className="self-start" disabled={reviewSubmitting || !rating}>
+                    {tReview("submit")}
+                  </Button>
+                  {reviewError && (
+                    <p role="alert" className="text-sm text-red-600 dark:text-red-400">
+                      {reviewError}
+                    </p>
+                  )}
+                </form>
+              )}
+            </Card>
           )}
 
           <div className="flex flex-col gap-2 border-t border-zinc-200 pt-3 dark:border-zinc-800">
