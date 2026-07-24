@@ -36,4 +36,13 @@ describe("GET /api/profile/[nickname] — public, no auth", () => {
     expect(res.status).toBe(404);
     expect(await res.json()).toMatchObject({ code: "NOT_FOUND" });
   });
+
+  it("handles nicknames with literal % unchanged (no double-decode 500)", async () => {
+    getPublicProfile.mockResolvedValue({ nickname: "100%off", bio: "discount", region: "서울", phoneVerified: false, createdAt: new Date(0) });
+    const res = await GET(new Request("http://localhost/api/profile/100%25off"), ctx("100%off"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({ nickname: "100%off", bio: "discount", region: "서울", phoneVerified: false, createdAt: new Date(0).toISOString() });
+    expect(getPublicProfile).toHaveBeenCalledWith(expect.anything(), "100%off");
+  });
 });
