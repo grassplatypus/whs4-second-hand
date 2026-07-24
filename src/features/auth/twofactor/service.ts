@@ -3,6 +3,7 @@ import { AppError } from "@/features/_shared/error";
 import { verifyPassword, dummyVerify } from "../password";
 import { createSession, type IssuedSession } from "../session";
 import { AUTH_EVENTS, logAuthEvent, type RequestMeta } from "../audit";
+import { assertNotSuspended, type Role } from "../rbac";
 import type { AuthDb } from "../db";
 import { generateTotpSecret, totpUri, verifyTotp } from "./totp";
 import { issueEmailOtp, verifyEmailOtp } from "./emailOtp";
@@ -156,6 +157,11 @@ export async function completeLoginTwoFactor(
     await logAuthEvent(db, AUTH_EVENTS.TWO_FACTOR_FAIL, userId, meta);
     throw twoFactorFailed();
   }
+  // 코드는 맞았지만, 챌린지 대기 중 계정이 정지/탈퇴됐을 수 있다 — 세션 발급 전 DB-fresh로 마지막 확인.
+  // (코드 검증 자체는 통과했으므로 TWO_FACTOR_FAIL이 아니라 별도의 403으로 막는다.)
+  const user = await db.user.findUnique({ where: { id: userId }, select: { role: true, deletedAt: true } });
+  if (!user) throw twoFactorFailed();
+  assertNotSuspended({ role: user.role as Role, deletedAt: user.deletedAt });
   const session = await createSession(db, userId);
   await logAuthEvent(db, AUTH_EVENTS.TWO_FACTOR_SUCCESS, userId, meta);
   return session;

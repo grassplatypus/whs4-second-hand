@@ -308,8 +308,9 @@ describe("completeLoginTwoFactor", () => {
   it("verifies EMAIL method via verifyEmailOtp(LOGIN_2FA) and issues a session on success", async () => {
     const codeHash = await bcrypt.hash("654321", 10);
     const emailFindMany = vi.fn().mockResolvedValue([{ id: "otp1", codeHash }]);
+    const findUnique = vi.fn().mockResolvedValue({ role: "USER", deletedAt: null });
     const sessionCreate = vi.fn().mockResolvedValue({ id: "s1" });
-    const db = fakeDb({ emailFindMany, sessionCreate });
+    const db = fakeDb({ emailFindMany, findUnique, sessionCreate });
 
     const session = await completeLoginTwoFactor(
       db,
@@ -404,6 +405,40 @@ describe("completeLoginTwoFactor", () => {
     ).rejects.toMatchObject({ code: "TWO_FACTOR_FAILED", httpStatus: 401 });
     expect(sessionCreate).not.toHaveBeenCalled();
     expect(auditEvents(db)).toEqual(["TWO_FACTOR_FAIL"]);
+  });
+
+  it("rejects with ACCOUNT_SUSPENDED and issues no session when the user was suspended mid-challenge (code is correct)", async () => {
+    const secret = generateTotpSecret();
+    const findUnique = vi.fn().mockResolvedValue({
+      totpSecret: encryptPII(secret),
+      role: "SUSPENDED",
+      deletedAt: null,
+    });
+    const sessionCreate = vi.fn();
+    const db = fakeDb({ findUnique, sessionCreate });
+
+    await expect(
+      completeLoginTwoFactor(db, USER_ID, "TOTP", { code: generateSync({ secret }) }, new MemoryMailer(), noMeta),
+    ).rejects.toMatchObject({ code: "ACCOUNT_SUSPENDED", httpStatus: 403 });
+    expect(sessionCreate).not.toHaveBeenCalled();
+    expect(auditEvents(db)).toEqual([]);
+  });
+
+  it("rejects with ACCOUNT_GONE and issues no session when the user was soft-deleted mid-challenge (code is correct)", async () => {
+    const secret = generateTotpSecret();
+    const findUnique = vi.fn().mockResolvedValue({
+      totpSecret: encryptPII(secret),
+      role: "USER",
+      deletedAt: new Date(),
+    });
+    const sessionCreate = vi.fn();
+    const db = fakeDb({ findUnique, sessionCreate });
+
+    await expect(
+      completeLoginTwoFactor(db, USER_ID, "TOTP", { code: generateSync({ secret }) }, new MemoryMailer(), noMeta),
+    ).rejects.toMatchObject({ code: "ACCOUNT_GONE", httpStatus: 403 });
+    expect(sessionCreate).not.toHaveBeenCalled();
+    expect(auditEvents(db)).toEqual([]);
   });
 });
 
