@@ -138,6 +138,11 @@ export function ProductForm({
     setError(null);
     setNoLocation(false);
     if (submitting) return;
+    // 가격을 비워 두면 0원(나눔)으로 잘못 등록되므로, 값이 없으면 먼저 알려준다.
+    if (price.trim() === "") {
+      setError(t("priceRequired"));
+      return;
+    }
     setSubmitting(true);
     try {
       const common = {

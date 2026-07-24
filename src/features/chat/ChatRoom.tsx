@@ -71,6 +71,8 @@ export interface ChatRoomProps {
   productTitle?: string;
   /** 재입장 시 즉시 정확한 상태를 보여주기 위해 서버(페이지)가 미리 조회해 넣어준다(#4/G9 — 양방향 차단 확인). */
   initialBlocked?: boolean;
+  /** 상대가 나를 차단한 경우 — 내가 풀 수 없으므로 안내만 하고 해제 버튼은 숨긴다. */
+  blockedByOther?: boolean;
   /**
    * WS 실시간 수신은 진행 개선(progressive enhancement)이다 — 앱이 아직 액세스 토큰을 클라이언트에
    * 보관하지 않으므로(별도 과제) 기본값은 undefined이고, 이 경우 소켓을 아예 열지 않는다.
@@ -89,6 +91,7 @@ export function ChatRoom({
   productId,
   productTitle,
   initialBlocked = false,
+  blockedByOther = false,
   accessToken,
   wsUrl,
 }: ChatRoomProps) {
@@ -406,7 +409,8 @@ export function ChatRoom({
   }
 
   // 이력 로딩 중에도 타이핑은 막지 않는다 — 전송 버튼만 히스토리 로딩이 끝날 때까지 비활성화한다.
-  const composerDisabled = sending || uploading || blocked;
+  // 어느 쪽이든 차단이면 보낼 수 없다. 단 "해제"는 내가 건 차단만 풀 수 있다.
+  const composerDisabled = sending || uploading || blocked || blockedByOther;
   const sendDisabled = composerDisabled || loadingHistory;
 
   return (
@@ -426,6 +430,7 @@ export function ChatRoom({
           </div>
         </div>
         <div className="flex shrink-0 gap-2">
+          {!blockedByOther && (
           <button
             type="button"
             onClick={() => void toggleBlock()}
@@ -433,6 +438,7 @@ export function ChatRoom({
           >
             {blocked ? t("unblock") : t("block")}
           </button>
+          )}
           <button
             type="button"
             onClick={() => setReporting((v) => !v)}
@@ -452,6 +458,11 @@ export function ChatRoom({
       </div>
 
       <div className="flex flex-col gap-2 px-4 pt-3">
+        {blockedByOther && (
+          <p className="rounded-lg bg-zinc-100 px-3 py-2 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+            {t("blockedByOtherState")}
+          </p>
+        )}
         {blocked && (
           <p className="rounded-lg bg-zinc-100 px-3 py-2 text-xs text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
             {t("blockedState")}

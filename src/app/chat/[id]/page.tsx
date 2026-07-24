@@ -42,7 +42,8 @@ export default async function ChatRoomPage({ params }: { params: Promise<{ id: s
         otherNickname={other?.nickname ?? ""}
         productId={conversation.productId}
         productTitle={product?.title}
-        initialBlocked={blockedByMe || blockedByOther}
+        initialBlocked={blockedByMe}
+        blockedByOther={blockedByOther}
       />
     </main>
   );

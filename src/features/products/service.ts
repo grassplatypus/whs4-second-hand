@@ -22,7 +22,12 @@ function invalidInput(): AppError {
 export const productInputSchema = z.object({
   title: z.string().trim().min(1, "제목을 입력해 주세요.").max(40, "제목은 40자 이하로 적어 주세요."),
   description: z.string().trim().max(2000, "설명은 2000자 이하로 적어 주세요."),
-  price: z.number().int("가격은 정수여야 해요.").min(0, "가격은 0원 이상이어야 해요."),
+  // 상한은 안전거래 금액 상한과 같게 맞춘다 — 넘치는 값이 DB 오류(500)로 새지 않게.
+  price: z
+    .number()
+    .int("가격은 정수여야 해요.")
+    .min(0, "가격은 0원 이상이어야 해요.")
+    .max(1_000_000_000, "가격이 너무 커요."),
   category: z.enum(CATEGORIES),
   directPlace: z.string().trim().max(100).optional(),
   images: z

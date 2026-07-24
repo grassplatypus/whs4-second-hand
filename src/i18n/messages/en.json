@@ -341,7 +341,8 @@
     "viewLargeImage": "View larger",
     "thumbnailAria": "Product image {index}",
     "imagePreviewAlt": "Product image {index} preview",
-    "removeImageAria": "Remove image {index}"
+    "removeImageAria": "Remove image {index}",
+    "priceRequired": "Enter a price (put 0 to give it away)"
   },
   "chat": {
     "listTitle": "Chat",
@@ -394,7 +395,8 @@
     "notFound": "Conversation not found",
     "forbidden": "You don't have permission",
     "emptyMessage": "Please enter a message",
-    "invalidImage": "Couldn't process that image"
+    "invalidImage": "Couldn't process that image",
+    "blockedByOtherState": "The other person blocked this chat"
   },
   "escrow": {
     "listTitle": "Escrow",
