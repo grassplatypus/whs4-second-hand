@@ -206,6 +206,22 @@ describe("sendMessage", () => {
     expect(message.text).not.toContain("시발");
     expect(message.text).toContain("*");
   });
+
+  it("rejects an empty/whitespace text message (EMPTY_MESSAGE 400) and writes nothing", async () => {
+    const repo = new InMemoryChatRepo();
+    const conversation = await setupConversation(repo);
+
+    await expect(
+      sendMessage(repo, BUYER_ID, conversation._id, { kind: "text", text: "" }),
+    ).rejects.toMatchObject({ code: "EMPTY_MESSAGE", httpStatus: 400 });
+
+    await expect(
+      sendMessage(repo, BUYER_ID, conversation._id, { kind: "text", text: "   " }),
+    ).rejects.toMatchObject({ code: "EMPTY_MESSAGE", httpStatus: 400 });
+
+    const messages = await repo.listMessages(conversation._id);
+    expect(messages.length).toBe(0);
+  });
 });
 
 describe("listConversations", () => {
@@ -336,19 +352,92 @@ describe("blockUser / unblockUser", () => {
 describe("reportMessage / reportUser", () => {
   it("reports a message with status open", async () => {
     const repo = new InMemoryChatRepo();
+    const conversation = await repo.createConversation({
+      productId: PRODUCT_ID,
+      sellerId: SELLER_ID,
+      buyerId: BUYER_ID,
+      createdAt: new Date(),
+      lastMessageAt: new Date(),
+    });
+    const message = await repo.insertMessage({
+      conversationId: conversation._id,
+      senderId: BUYER_ID,
+      kind: "text",
+      text: "안녕하세요",
+      rawText: "안녕하세요",
+      masked: false,
+      createdAt: new Date(),
+    });
     const insertReportSpy = vi.spyOn(repo, "insertReport");
 
-    await reportMessage(repo, BUYER_ID, "message-1", "욕설");
+    await reportMessage(repo, BUYER_ID, message._id, "욕설");
 
     expect(insertReportSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         reporterId: BUYER_ID,
         targetType: "message",
-        targetId: "message-1",
+        targetId: message._id,
         reason: "욕설",
         status: "open",
       }),
     );
+  });
+
+  it("returns NOT_FOUND when reporting a missing messageId", async () => {
+    const repo = new InMemoryChatRepo();
+
+    await expect(reportMessage(repo, BUYER_ID, "nope", "욕설")).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      httpStatus: 404,
+    });
+  });
+
+  it("snapshots the ORIGINAL (pre-mask) text as admin evidence, while the delivered/listed text stays masked", async () => {
+    const repo = new InMemoryChatRepo();
+    const db = fakeDb();
+
+    const started = await startConversation(repo, db, BUYER_ID, PRODUCT_ID, "시발 이거 팔아요?");
+
+    // Delivered message (what the participant sees) is masked.
+    expect(started.message.text).not.toContain("시발");
+    expect(started.message.text).toContain("*");
+
+    const insertReportSpy = vi.spyOn(repo, "insertReport");
+    await reportMessage(repo, SELLER_ID, started.message._id, "욕설 신고");
+
+    expect(insertReportSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        snapshot: expect.stringContaining("시발"),
+      }),
+    );
+
+    // Listed message for participants must still be masked, never the raw profanity.
+    const listed = await listMessages(repo, BUYER_ID, started.conversationId);
+    expect(listed[0].text).not.toContain("시발");
+  });
+
+  it("does not leak rawText to participants via startConversation/sendMessage returns or listMessages", async () => {
+    const repo = new InMemoryChatRepo();
+    const db = fakeDb();
+
+    const started = await startConversation(repo, db, BUYER_ID, PRODUCT_ID, "시발 이거 팔아요?");
+    expect((started.message as { rawText?: string }).rawText).toBeUndefined();
+    expect(JSON.stringify(started.message)).not.toContain("시발");
+
+    const sent = await sendMessage(repo, SELLER_ID, started.conversationId, {
+      kind: "text",
+      text: "개새끼야 비싸잖아",
+    });
+    expect((sent as { rawText?: string }).rawText).toBeUndefined();
+    expect(JSON.stringify(sent)).not.toContain("개새끼");
+
+    const listed = await listMessages(repo, BUYER_ID, started.conversationId);
+    for (const message of listed) {
+      expect((message as { rawText?: string }).rawText).toBeUndefined();
+    }
+    const serialized = JSON.stringify(listed);
+    expect(serialized).not.toContain("시발");
+    expect(serialized).not.toContain("개새끼");
   });
 
   it("reports a user with status open", async () => {

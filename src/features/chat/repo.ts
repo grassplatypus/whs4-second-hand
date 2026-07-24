@@ -17,6 +17,8 @@ export interface Message {
   senderId: string;
   kind: "text" | "image";
   text?: string;
+  /** 마스킹 전 원문 — 관리자(신고 처리) 전용. 참여자에게는 절대 반환하지 않는다. */
+  rawText?: string;
   imagePath?: string;
   masked: boolean;
   createdAt: Date;
@@ -60,6 +62,7 @@ export interface ChatRepo {
   /** userId가 buyer 또는 seller인 대화를 lastMessageAt 최신순으로 반환한다. */
   listConversations(userId: string): Promise<Conversation[]>;
   insertMessage(msg: NewMessage): Promise<Message>;
+  getMessage(id: string): Promise<Message | null>;
   listMessages(conversationId: string, opts?: ListMessagesOptions): Promise<Message[]>;
   countMessages(conversationId: string): Promise<number>;
   isBlocked(blockerId: string, blockedId: string): Promise<boolean>;
@@ -105,6 +108,11 @@ export class InMemoryChatRepo implements ChatRepo {
     const message: Message = { _id: randomUUID(), ...msg };
     this.messages.push(message);
     return { ...message };
+  }
+
+  async getMessage(id: string): Promise<Message | null> {
+    const found = this.messages.find((m) => m._id === id);
+    return found ? { ...found } : null;
   }
 
   async listMessages(conversationId: string, opts: ListMessagesOptions = {}): Promise<Message[]> {
@@ -193,6 +201,11 @@ export class MongoChatRepo implements ChatRepo {
     const message: Message = { _id: randomUUID(), ...msg };
     await db.collection<Message>(COLLECTIONS.messages).insertOne(message);
     return message;
+  }
+
+  async getMessage(id: string): Promise<Message | null> {
+    const db = await getChatDb();
+    return db.collection<Message>(COLLECTIONS.messages).findOne({ _id: id });
   }
 
   async listMessages(conversationId: string, opts: ListMessagesOptions = {}): Promise<Message[]> {
