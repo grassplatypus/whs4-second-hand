@@ -4,5 +4,5 @@ import { requireAdmin } from "@/features/auth/rbac";
 
 export const GET = withErrorHandling(async (req: Request) => {
   await requireAdmin(prisma, req);
-  return Response.json({ ok: true });
+  return Response.json({ ok: true, role: "ADMIN" });
 });

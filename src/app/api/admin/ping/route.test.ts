@@ -29,7 +29,7 @@ describe("GET /api/admin/ping — admin gate", () => {
     userFindUnique.mockResolvedValue({ role: "ADMIN", deletedAt: null });
     const res = await GET(req(`${REFRESH_COOKIE}=tok`));
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ ok: true });
+    expect(await res.json()).toEqual({ ok: true, role: "ADMIN" });
   });
 
   it("403 FORBIDDEN for a regular USER", async () => {
