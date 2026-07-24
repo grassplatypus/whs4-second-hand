@@ -100,6 +100,16 @@ export interface ChatRepo {
   upsertAutoReport(report: NewReport): Promise<void>;
   /** 사용자 신고를 기존(자동 포함) 신고와 합친다. 합칠 대상이 없으면 새로 만든다. */
   mergeUserReport(report: NewReport): Promise<void>;
+  /** 방을 열어본 시각을 기록한다 — 읽음 표시와 안 읽은 수의 기준. */
+  markRead(conversationId: string, userId: string, at: Date): Promise<void>;
+  /** 방을 나간 시각을 기록한다(상대에게는 그대로 남는다). */
+  markLeft(conversationId: string, userId: string, at: Date): Promise<void>;
+  /** 특정 시각 이후 상대가 보낸 메시지 수 — 안 읽은 수 뱃지에 쓴다. */
+  countUnread(conversationId: string, userId: string, since: Date | undefined): Promise<number>;
+  /** 양쪽 모두 나갔고 그 뒤로 새 메시지가 없는 방(휴면) — 관리자만 지울 수 있다. */
+  listDormantConversations(): Promise<Conversation[]>;
+  /** 방과 그 메시지를 실제로 지운다(관리자 전용). */
+  deleteConversations(ids: string[]): Promise<number>;
   /** 관리자 신고 관리(#6)용 — open 우선·최신순 목록. */
   listReports(opts?: ListReportsOptions): Promise<Report[]>;
   /** 관리자 대시보드용 — 상태별 신고 수(문서를 메모리에 올리지 않고 카운트만). */
@@ -212,6 +222,47 @@ export class InMemoryChatRepo implements ChatRepo {
       return;
     }
     this.reports.push({ _id: randomUUID(), ...report, reportedBy: [report.reporterId] });
+  }
+
+  async markRead(conversationId: string, userId: string, at: Date): Promise<void> {
+    const c = this.conversations.find((x) => x._id === conversationId);
+    if (!c) return;
+    if (c.buyerId === userId) c.buyerReadAt = at;
+    if (c.sellerId === userId) c.sellerReadAt = at;
+  }
+
+  async markLeft(conversationId: string, userId: string, at: Date): Promise<void> {
+    const c = this.conversations.find((x) => x._id === conversationId);
+    if (!c) return;
+    if (c.buyerId === userId) c.buyerLeftAt = at;
+    if (c.sellerId === userId) c.sellerLeftAt = at;
+  }
+
+  async countUnread(conversationId: string, userId: string, since: Date | undefined): Promise<number> {
+    return this.messages.filter(
+      (m) =>
+        m.conversationId === conversationId &&
+        m.senderId !== userId &&
+        (!since || m.createdAt > since),
+    ).length;
+  }
+
+  async listDormantConversations(): Promise<Conversation[]> {
+    return this.conversations
+      .filter((c) => {
+        if (!c.buyerLeftAt || !c.sellerLeftAt) return false;
+        const later = c.buyerLeftAt > c.sellerLeftAt ? c.buyerLeftAt : c.sellerLeftAt;
+        // 둘 다 나간 뒤로 새 메시지가 없다(같은 밀리초 도착까지 "그 전"으로 본다).
+        return c.lastMessageAt.getTime() <= later.getTime();
+      })
+      .map((c) => ({ ...c }));
+  }
+
+  async deleteConversations(ids: string[]): Promise<number> {
+    const before = this.conversations.length;
+    this.conversations = this.conversations.filter((c) => !ids.includes(c._id));
+    this.messages = this.messages.filter((m) => !ids.includes(m.conversationId));
+    return before - this.conversations.length;
   }
 
   async listReports(opts?: ListReportsOptions): Promise<Report[]> {
@@ -365,6 +416,49 @@ export class MongoChatRepo implements ChatRepo {
         .collection<Report>(COLLECTIONS.reports)
         .insertOne({ _id: randomUUID(), ...report, reportedBy: [report.reporterId] });
     }
+  }
+
+  async markRead(conversationId: string, userId: string, at: Date): Promise<void> {
+    const db = await getChatDb();
+    const col = db.collection<Conversation>(COLLECTIONS.conversations);
+    await col.updateOne({ _id: conversationId, buyerId: userId }, { $set: { buyerReadAt: at } });
+    await col.updateOne({ _id: conversationId, sellerId: userId }, { $set: { sellerReadAt: at } });
+  }
+
+  async markLeft(conversationId: string, userId: string, at: Date): Promise<void> {
+    const db = await getChatDb();
+    const col = db.collection<Conversation>(COLLECTIONS.conversations);
+    await col.updateOne({ _id: conversationId, buyerId: userId }, { $set: { buyerLeftAt: at } });
+    await col.updateOne({ _id: conversationId, sellerId: userId }, { $set: { sellerLeftAt: at } });
+  }
+
+  async countUnread(conversationId: string, userId: string, since: Date | undefined): Promise<number> {
+    const db = await getChatDb();
+    const filter: Filter<Message> = { conversationId, senderId: { $ne: userId } };
+    if (since) filter.createdAt = { $gt: since };
+    return db.collection<Message>(COLLECTIONS.messages).countDocuments(filter);
+  }
+
+  async listDormantConversations(): Promise<Conversation[]> {
+    const db = await getChatDb();
+    // 둘 다 나갔고, 마지막 메시지가 "나중에 나간 시각"보다 이르거나 같은 방.
+    return db
+      .collection<Conversation>(COLLECTIONS.conversations)
+      .aggregate<Conversation>([
+        { $match: { buyerLeftAt: { $ne: null }, sellerLeftAt: { $ne: null } } },
+        { $addFields: { _laterLeft: { $max: ["$buyerLeftAt", "$sellerLeftAt"] } } },
+        { $match: { $expr: { $lte: ["$lastMessageAt", "$_laterLeft"] } } },
+        { $project: { _laterLeft: 0 } },
+      ])
+      .toArray();
+  }
+
+  async deleteConversations(ids: string[]): Promise<number> {
+    if (ids.length === 0) return 0;
+    const db = await getChatDb();
+    await db.collection<Message>(COLLECTIONS.messages).deleteMany({ conversationId: { $in: ids } });
+    const res = await db.collection<Conversation>(COLLECTIONS.conversations).deleteMany({ _id: { $in: ids } });
+    return res.deletedCount ?? 0;
   }
 
   async listReports(opts?: ListReportsOptions): Promise<Report[]> {

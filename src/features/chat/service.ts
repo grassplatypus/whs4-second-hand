@@ -280,8 +280,11 @@ export async function sendMessage(
 export interface ConversationSummary {
   conversationId: string;
   otherNickname: string;
+  otherAvatarPath: string | null;
   product: { id: string; title: string };
   lastMessageAt: Date;
+  /** 내가 마지막으로 본 뒤 상대가 보낸 메시지 수 — 목록의 안 읽은 뱃지에 쓴다. */
+  unreadCount: number;
 }
 
 /**
@@ -291,21 +294,82 @@ export interface ConversationSummary {
 export async function listConversations(repo: ChatRepo, db: ChatDb, userId: string): Promise<ConversationSummary[]> {
   const conversations = await repo.listConversations(userId);
 
+  // 내가 나간 방은 숨긴다 — 단, 나간 뒤 상대가 새로 보냈으면 다시 보여준다.
+  // (나간 직후 같은 밀리초에 메시지가 올 수 있어 시각 비교 대신 "그 뒤 상대 메시지 수"로 판정한다.)
+  const visible: Conversation[] = [];
+  for (const c of conversations) {
+    const leftAt = c.buyerId === userId ? c.buyerLeftAt : c.sellerLeftAt;
+    if (!leftAt) {
+      visible.push(c);
+      continue;
+    }
+    const since = new Date(leftAt.getTime() - 1); // 같은 ms에 도착한 메시지도 "나간 뒤"로 본다
+    if ((await repo.countUnread(c._id, userId, since)) > 0) visible.push(c);
+  }
+
   return Promise.all(
-    conversations.map(async (conversation) => {
+    visible.map(async (conversation) => {
       const otherId = otherParticipant(conversation, userId);
-      const [other, product] = await Promise.all([
-        db.user.findUnique({ where: { id: otherId }, select: { nickname: true } }),
+      const readAt = conversation.buyerId === userId ? conversation.buyerReadAt : conversation.sellerReadAt;
+      const [other, product, unread] = await Promise.all([
+        db.user.findUnique({ where: { id: otherId }, select: { nickname: true, avatarPath: true } }),
         db.product.findFirst({ where: { id: conversation.productId }, select: { title: true } }),
+        repo.countUnread(conversation._id, userId, readAt),
       ]);
       return {
         conversationId: conversation._id,
         otherNickname: other?.nickname ?? "",
+        otherAvatarPath: other?.avatarPath ?? null,
         product: { id: conversation.productId, title: product?.title ?? "" },
         lastMessageAt: conversation.lastMessageAt,
+        unreadCount: unread,
       };
     }),
   );
+}
+
+/**
+ * 방 나가기 — 내 목록에서만 사라진다. 상대는 그대로 보이고, 상대가 새 메시지를 보내면
+ * 내 목록에도 다시 나타난다. 둘 다 나가고 새 메시지도 없으면 휴면 방이 되어
+ * 관리자가 지울 수 있게 된다.
+ */
+export async function leaveConversation(repo: ChatRepo, userId: string, conversationId: string): Promise<void> {
+  const conversation = await repo.getConversation(conversationId);
+  if (!conversation) throw conversationNotFound();
+  assertParticipant(conversation, userId);
+  await repo.markLeft(conversationId, userId, new Date());
+}
+
+/** 방을 열어봤다고 표시한다 — 안 읽은 수가 0이 되고, 상대에게 읽음으로 보인다. */
+export async function markConversationRead(repo: ChatRepo, userId: string, conversationId: string): Promise<void> {
+  const conversation = await repo.getConversation(conversationId);
+  if (!conversation) throw conversationNotFound();
+  assertParticipant(conversation, userId);
+  await repo.markRead(conversationId, userId, new Date());
+}
+
+export interface DormantConversation {
+  conversationId: string;
+  productId: string;
+  lastMessageAt: Date;
+}
+
+/** 휴면 방 목록(관리자용) — 양쪽 모두 나갔고 그 뒤 새 메시지가 없는 방. */
+export async function listDormantConversations(repo: ChatRepo): Promise<DormantConversation[]> {
+  const rows = await repo.listDormantConversations();
+  return rows.map((c) => ({
+    conversationId: c._id,
+    productId: c.productId,
+    lastMessageAt: c.lastMessageAt,
+  }));
+}
+
+/** 휴면 방 삭제(관리자용) — 휴면이 아닌 방은 지우지 않는다. */
+export async function deleteDormantConversations(repo: ChatRepo, ids: string[]): Promise<number> {
+  const dormant = new Set((await repo.listDormantConversations()).map((c) => c._id));
+  const deletable = ids.filter((id) => dormant.has(id));
+  if (deletable.length === 0) return 0;
+  return repo.deleteConversations(deletable);
 }
 
 /** 대화 메시지 목록 — 참여자가 아니면 403(제3자 격리). 저장된 마스킹 텍스트를 그대로 반환한다. */

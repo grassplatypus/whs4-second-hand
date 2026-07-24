@@ -12,6 +12,10 @@ import {
   reportMessage,
   reportUser,
   reportConversationCounterparty,
+  leaveConversation,
+  markConversationRead,
+  listDormantConversations,
+  deleteDormantConversations,
 } from "./service";
 import { InMemoryChatRepo } from "./repo";
 import type { ChatDb } from "./db";
@@ -288,8 +292,10 @@ describe("listConversations", () => {
     expect(summaries[0]).toEqual({
       conversationId: conversation._id,
       otherNickname: "판매자닉네임",
+      otherAvatarPath: null,
       product: { id: PRODUCT_ID, title: "상품 제목" },
       lastMessageAt: conversation.lastMessageAt,
+      unreadCount: expect.any(Number),
     });
     const serialized = JSON.stringify(summaries);
     expect(serialized).not.toContain("email");
@@ -683,5 +689,77 @@ describe("비속어 자동 감지(관리자 전용, 사용자에게는 조용히
     expect(forMessage[0].auto).toBe(true);
     expect(forMessage[0].reportedBy).toContain(SELLER_ID);
     expect(forMessage[0].reason).toBe("욕설/비방");
+  });
+});
+
+describe("방 나가기 · 읽음 · 휴면", () => {
+  it("나가면 내 목록에서만 사라지고 상대 목록에는 남는다", async () => {
+    const repo = new InMemoryChatRepo();
+    const db = fakeDb({});
+    const { conversationId } = await startConversation(repo, db, BUYER_ID, PRODUCT_ID, "안녕하세요");
+
+    await leaveConversation(repo, BUYER_ID, conversationId);
+
+    expect(await listConversations(repo, db, BUYER_ID)).toHaveLength(0);
+    expect(await listConversations(repo, db, SELLER_ID)).toHaveLength(1);
+  });
+
+  it("나간 뒤 상대가 새 메시지를 보내면 내 목록에 다시 나타난다", async () => {
+    const repo = new InMemoryChatRepo();
+    const db = fakeDb({});
+    const { conversationId } = await startConversation(repo, db, BUYER_ID, PRODUCT_ID, "안녕하세요");
+    await leaveConversation(repo, BUYER_ID, conversationId);
+    expect(await listConversations(repo, db, BUYER_ID)).toHaveLength(0);
+
+    await sendMessage(repo, SELLER_ID, conversationId, { kind: "text", text: "아직 있어요!" });
+
+    expect(await listConversations(repo, db, BUYER_ID)).toHaveLength(1);
+  });
+
+  it("안 읽은 메시지 수를 세고, 읽으면 0이 된다", async () => {
+    const repo = new InMemoryChatRepo();
+    const db = fakeDb({});
+    const { conversationId } = await startConversation(repo, db, BUYER_ID, PRODUCT_ID, "안녕하세요");
+    await sendMessage(repo, SELLER_ID, conversationId, { kind: "text", text: "네" });
+    await sendMessage(repo, SELLER_ID, conversationId, { kind: "text", text: "가능해요" });
+
+    const before = await listConversations(repo, db, BUYER_ID);
+    expect(before[0].unreadCount).toBe(2);
+
+    await markConversationRead(repo, BUYER_ID, conversationId);
+    const after = await listConversations(repo, db, BUYER_ID);
+    expect(after[0].unreadCount).toBe(0);
+  });
+
+  it("양쪽 모두 나가고 새 메시지가 없으면 휴면 방이 되고, 관리자만 지울 수 있다", async () => {
+    const repo = new InMemoryChatRepo();
+    const db = fakeDb({});
+    const { conversationId } = await startConversation(repo, db, BUYER_ID, PRODUCT_ID, "안녕하세요");
+
+    await leaveConversation(repo, BUYER_ID, conversationId);
+    expect(await listDormantConversations(repo)).toHaveLength(0); // 아직 한 명만 나감
+
+    await leaveConversation(repo, SELLER_ID, conversationId);
+    const dormant = await listDormantConversations(repo);
+    expect(dormant.map((d) => d.conversationId)).toContain(conversationId);
+
+    expect(await deleteDormantConversations(repo, [conversationId])).toBe(1);
+    expect(await listDormantConversations(repo)).toHaveLength(0);
+  });
+
+  it("휴면이 아닌 방은 관리자도 지울 수 없다", async () => {
+    const repo = new InMemoryChatRepo();
+    const db = fakeDb({});
+    const { conversationId } = await startConversation(repo, db, BUYER_ID, PRODUCT_ID, "안녕하세요");
+    expect(await deleteDormantConversations(repo, [conversationId])).toBe(0);
+    expect(await listConversations(repo, db, SELLER_ID)).toHaveLength(1);
+  });
+
+  it("참여자가 아니면 나가기·읽음 표시를 할 수 없다(403)", async () => {
+    const repo = new InMemoryChatRepo();
+    const db = fakeDb({});
+    const { conversationId } = await startConversation(repo, db, BUYER_ID, PRODUCT_ID, "안녕하세요");
+    await expect(leaveConversation(repo, "third", conversationId)).rejects.toMatchObject({ httpStatus: 403 });
+    await expect(markConversationRead(repo, "third", conversationId)).rejects.toMatchObject({ httpStatus: 403 });
   });
 });
