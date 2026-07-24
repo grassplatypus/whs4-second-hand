@@ -58,7 +58,7 @@ model PhoneOtp {
 ## D. PhoneVerifier 어댑터 (`src/features/location/phone/`)
 
 - `interface Sms { send(toBlindIndexSafe: string, phonePlaintext: string, code: string): Promise<void> }` — 목/실제. 실제=Octomo. 평문 전화는 발송에만.
-- `getSms()`(키 있으면 Octomo, 없으면 콘솔 목).
+- `getSms()`(키 있으면 Octomo 목표, 없으면 콘솔 목). **현 구현은 항상 콘솔 목** — 실 Octomo 배선은 §L 이후(키가 있어도 코드는 콘솔로만, 안전 실패).
 - `issuePhoneOtp(db, userId, phonePlaintext, sms, meta)` — 6자리 코드→bcrypt 저장(phoneBlindIndex 포함), 기존 미소비 무효화, 레이트리밋(30초), SMS 발송, `PHONE_OTP_SENT` 감사(평문 전화·코드 미기록).
 - `verifyPhoneOtp(db, userId, code): Promise<boolean>` — 미소비·미만료 조회→bcrypt 비교→consumedAt.
 
