@@ -81,6 +81,8 @@ export interface ReportCursor {
   createdAt: Date;
   /** 그 신고의 상태. open 우선 정렬을 이어가려면 순위도 알아야 한다. */
   status: ReportStatus;
+  /** 그 신고의 id — 같은 밀리초에 만들어진 건들 사이에서 순서를 못박는다. */
+  id?: string;
 }
 
 export interface ListReportsOptions {
@@ -315,19 +317,26 @@ export class InMemoryChatRepo implements ChatRepo {
   async listReports(opts?: ListReportsOptions): Promise<Report[]> {
     let rows = this.reports.slice();
     if (opts?.status) rows = rows.filter((r) => r.status === opts.status);
-    // open을 항상 앞으로, 그다음 최신순.
+    // open을 항상 앞으로, 그다음 최신순. 같은 밀리초면 id로 순서를 못박는다
+    // (그래야 "더 보기"가 같은 건을 다시 주거나 건너뛰지 않는다).
     rows.sort(
-      (a, b) => openRank(a.status) - openRank(b.status) || b.createdAt.getTime() - a.createdAt.getTime(),
+      (a, b) =>
+        openRank(a.status) - openRank(b.status) ||
+        b.createdAt.getTime() - a.createdAt.getTime() ||
+        a._id.localeCompare(b._id),
     );
     if (opts?.cursor) {
-      // 정렬 기준(순위 → 최신순)에서 커서보다 뒤에 있는 것만 남긴다.
+      // 정렬 기준(순위 → 최신순 → id)에서 커서보다 뒤에 있는 것만 남긴다.
       const cursorRank = openRank(opts.cursor.status);
       const cursorTime = opts.cursor.createdAt.getTime();
-      rows = rows.filter(
-        (r) =>
-          openRank(r.status) > cursorRank ||
-          (openRank(r.status) === cursorRank && r.createdAt.getTime() < cursorTime),
-      );
+      const cursorId = opts.cursor.id;
+      rows = rows.filter((r) => {
+        const rank = openRank(r.status);
+        if (rank !== cursorRank) return rank > cursorRank;
+        const at = r.createdAt.getTime();
+        if (at !== cursorTime) return at < cursorTime;
+        return cursorId ? r._id.localeCompare(cursorId) > 0 : false;
+      });
     }
     return (opts?.limit ? rows.slice(0, opts.limit) : rows).map((r) => ({ ...r }));
   }
@@ -554,22 +563,34 @@ export class MongoChatRepo implements ChatRepo {
     if (opts?.status) pipeline.push({ $match: { status: opts.status } });
     pipeline.push({ $addFields: { _openRank: { $cond: [{ $eq: ["$status", "open"] }, 0, 1] } } });
     if (opts?.cursor) {
-      // 커서는 정렬 기준(_openRank → createdAt)을 그대로 따라간다.
-      // 순위가 더 뒤이거나, 순위가 같으면서 더 오래된 건만 남긴다.
+      // 커서는 정렬 기준(_openRank → createdAt → _id)을 그대로 따라간다.
+      // 순위가 더 뒤이거나 / 순위가 같고 더 오래됐거나 / 같은 밀리초면 id가 더 뒤인 건만 남긴다.
       const cursorRank = openRank(opts.cursor.status);
       const cursorAt = opts.cursor.createdAt;
+      const cursorId = opts.cursor.id;
       pipeline.push({
         $match: {
           $expr: {
             $or: [
               { $gt: ["$_openRank", cursorRank] },
               { $and: [{ $eq: ["$_openRank", cursorRank] }, { $lt: ["$createdAt", cursorAt] }] },
+              ...(cursorId
+                ? [
+                    {
+                      $and: [
+                        { $eq: ["$_openRank", cursorRank] },
+                        { $eq: ["$createdAt", cursorAt] },
+                        { $gt: ["$_id", cursorId] },
+                      ],
+                    },
+                  ]
+                : []),
             ],
           },
         },
       });
     }
-    pipeline.push({ $sort: { _openRank: 1, createdAt: -1 } });
+    pipeline.push({ $sort: { _openRank: 1, createdAt: -1, _id: 1 } });
     if (opts?.limit) pipeline.push({ $limit: opts.limit });
     pipeline.push({ $project: { _openRank: 0 } });
     return db.collection<Report>(COLLECTIONS.reports).aggregate<Report>(pipeline).toArray();

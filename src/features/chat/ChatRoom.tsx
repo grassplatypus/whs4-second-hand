@@ -202,38 +202,36 @@ export function ChatRoom({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
 
-  /** 스크롤이 맨 위에 닿으면(또는 버튼으로) 커서 기반으로 이전 메시지를 더 불러온다 — 전체를 한 번에 로드하지 않는다(#3). */
   /**
    * 상대가 알려준 번호에 사기 신고 이력이 있는지 확인한다(데모용 흉내 조회).
-   * 서버는 이 대화에서 실제로 오간 번호만 확인해 준다 — 화면에서 표시된 구간을 그대로 보낸다.
+   * 서버는 상대가 이 대화에서 알려준 번호만 확인해 준다 — 표시된 구간의 숫자를 그대로 보낸다.
    */
-  async function checkFraud(m: ChatMessageView) {
-    const span = m.sensitive?.[0];
-    if (!span) return;
-    const value = span.digits;
-    setFraudChecking(m._id);
+  async function checkFraud(key: string, digits: string) {
+    if (!digits) return;
+    setFraudChecking(key);
     try {
       const res = await fetch("/api/chat/fraud-check", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ conversationId, value }),
+        body: JSON.stringify({ conversationId, value: digits }),
       });
       if (!res.ok) {
-        setFraudResults((prev) => ({ ...prev, [m._id]: t("fraudCheckFailed") }));
+        setFraudResults((prev) => ({ ...prev, [key]: t("fraudCheckFailed") }));
         return;
       }
       const body = (await res.json()) as { reported: boolean; count: number };
       setFraudResults((prev) => ({
         ...prev,
-        [m._id]: body.reported ? t("fraudReported", { count: body.count }) : t("fraudClean"),
+        [key]: body.reported ? t("fraudReported", { count: body.count }) : t("fraudClean"),
       }));
     } catch {
-      setFraudResults((prev) => ({ ...prev, [m._id]: t("fraudCheckFailed") }));
+      setFraudResults((prev) => ({ ...prev, [key]: t("fraudCheckFailed") }));
     } finally {
       setFraudChecking(null);
     }
   }
 
+  /** 스크롤이 맨 위에 닿으면(또는 버튼으로) 커서 기반으로 이전 메시지를 더 불러온다 — 전체를 한 번에 로드하지 않는다(#3). */
   async function loadOlder() {
     if (loadingMore || !hasMore || loadingHistory || messages.length === 0) return;
     setLoadingMore(true);
@@ -471,7 +469,12 @@ export function ChatRoom({
           </div>
         </div>
         <div className="flex shrink-0 gap-2">
-          {!blockedByOther && (
+          {/*
+            상대가 나를 차단했으면 "차단하기"는 의미가 없어 감춘다.
+            다만 내가 걸어 둔 차단은 언제든 풀 수 있어야 하므로, 그 경우에는 계속 보여준다
+            (양쪽이 서로 차단했을 때 내 차단만 영영 못 푸는 상황을 막는다 — 아래 안내가 상황을 설명한다).
+          */}
+          {(!blockedByOther || blocked) && (
           <button
             type="button"
             onClick={() => void toggleBlock()}
@@ -602,31 +605,33 @@ export function ChatRoom({
                   {m.kind === "text" ? (
                     <>
                       <p className="whitespace-pre-wrap text-sm">{renderWithSensitive(m)}</p>
-                      {m.sensitive?.length ? (
-                        <div className="mt-1 flex flex-col items-start gap-1">
-                          <p className="text-xs opacity-80">
-                            {m.sensitive.some((s) => s.kind === "phone")
-                              ? t("sensitivePhoneNotice")
-                              : t("sensitiveAccountNotice")}
-                          </p>
-                          {/* 상대가 알려준 번호는 그 자리에서 사기 이력을 확인할 수 있게 한다. */}
-                          {!m.mine && (
-                            <button
-                              type="button"
-                              onClick={() => checkFraud(m)}
-                              disabled={fraudChecking === m._id}
-                              className="text-xs font-medium underline underline-offset-2 disabled:opacity-60"
-                            >
-                              {fraudChecking === m._id ? t("fraudChecking") : t("fraudCheck")}
-                            </button>
-                          )}
-                          {fraudResults[m._id] && (
-                            <p className="text-xs font-medium">
-                              {fraudResults[m._id]} <span className="font-normal opacity-70">({t("fraudMockNote")})</span>
+                      {m.sensitive?.map((span, i) => {
+                        const key = `${m._id}:${i}`;
+                        return (
+                          <div key={key} className="mt-1 flex flex-col items-start gap-1">
+                            <p className="text-xs opacity-80">
+                              {span.kind === "phone" ? t("sensitivePhoneNotice") : t("sensitiveAccountNotice")}
                             </p>
-                          )}
-                        </div>
-                      ) : null}
+                            {/* 상대가 알려준 번호는 그 자리에서 사기 이력을 확인할 수 있게 한다. */}
+                            {!m.mine && (
+                              <button
+                                type="button"
+                                onClick={() => checkFraud(key, span.digits)}
+                                disabled={fraudChecking === key}
+                                className="text-xs font-medium underline underline-offset-2 disabled:opacity-60"
+                              >
+                                {fraudChecking === key ? t("fraudChecking") : t("fraudCheck")}
+                              </button>
+                            )}
+                            {fraudResults[key] && (
+                              <p className="text-xs font-medium">
+                                {fraudResults[key]}{" "}
+                                <span className="font-normal opacity-70">({t("fraudMockNote")})</span>
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
                     </>
                   ) : (
                     // eslint-disable-next-line @next/next/no-img-element

@@ -119,6 +119,8 @@ export async function startConversation(
     createdAt: now,
   });
   await repo.updateLastMessageAt(conversation._id, now);
+  // 나갔던 방에 상품 상세에서 다시 말을 건 경우 — 보낸 사람 목록에도 방이 돌아와야 한다.
+  await repo.clearLeft(conversation._id, buyerId);
   if (hit) await flagProfanityForAdmin(repo, message);
   // 첫 접촉에서 연락처·계좌를 흘리는 경우가 가장 잦다 — 여기서도 같은 검사를 돌린다.
   const firstScan = scanSensitive(firstTextValidated);
@@ -180,9 +182,9 @@ async function flagSensitiveForAdmin(
   // 사기 이력 조회(데모 목업) — 감지된 각 번호를 확인한다.
   const lookup = getFraudLookup();
   for (const span of scan.spans) {
-    const digits = raw.replace(/\D/g, "");
-    if (!digits) continue;
-    const result = await lookup.check(span.kind, digits).catch(() => null);
+    // 감지한 그 번호만 조회한다 — 메시지 전체의 숫자를 이어 붙이면(가격·시간까지) 엉뚱한 값이 된다.
+    if (!span.digits) continue;
+    const result = await lookup.check(span.kind, span.digits).catch(() => null);
     if (result?.reported) {
       reasons.push(`자동 감지: 사기 신고 이력 ${result.count}건(${span.kind === "phone" ? "전화번호" : "계좌"})`);
       break;
@@ -385,23 +387,33 @@ export async function checkConversationNumber(
   assertParticipant(conversation, userId);
 
   const digits = value.replace(/\D/g, "");
-  if (digits.length < 8 || digits.length > 16) {
+  if (digits.length < 8) {
     throw new AppError("INVALID_INPUT", "번호를 다시 확인해 주세요.", 400);
   }
 
-  // 이 대화의 메시지에서 감지된 번호들과 대조한다.
-  const messages = await repo.listMessages(conversationId, { limit: 200 });
+  /**
+   * 대화 전체를 오래된 쪽으로 훑으며, **상대가 보낸** 메시지에서 그 번호를 찾는다.
+   *
+   * - 내가 보낸 메시지는 제외한다. 그러지 않으면 아무 번호나 스스로 적어 놓고 조회하는 창구가 된다.
+   * - 최근 몇 건만 보면 옛 메시지의 번호는 화면에 버튼이 떠 있어도 늘 실패한다 — 끝까지 훑는다.
+   */
   let matched: { kind: "phone" | "account" } | undefined;
-  for (const m of messages) {
-    if (!m.text) continue;
-    const span = scanSensitive(m.text).spans.find((s) => s.digits === digits);
-    if (span) {
-      matched = { kind: span.kind };
-      break;
+  let cursor: Date | undefined;
+  scan: for (;;) {
+    const page = await repo.listMessages(conversationId, { limit: 200, cursor });
+    if (page.length === 0) break;
+    for (const m of page) {
+      if (!m.text || m.senderId === userId) continue;
+      const span = scanSensitive(m.text).spans.find((s) => s.digits === digits);
+      if (span) {
+        matched = { kind: span.kind };
+        break scan;
+      }
     }
+    cursor = page[page.length - 1].createdAt;
   }
   if (!matched) {
-    throw new AppError("NOT_IN_CONVERSATION", "이 대화에서 오간 번호만 확인할 수 있어요.", 400);
+    throw new AppError("NOT_IN_CONVERSATION", "상대가 이 대화에서 알려준 번호만 확인할 수 있어요.", 400);
   }
 
   const result = await getFraudLookup().check(matched.kind, digits);

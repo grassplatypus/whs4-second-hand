@@ -252,6 +252,34 @@ describe("InMemoryChatRepo", () => {
     });
     expect(next.map((r) => r.reason)).toEqual(["1번"]); // 다른 상태는 섞이지 않는다
   });
+
+  it("같은 시각에 들어온 신고들도 빠짐없이, 겹치지 않게 이어 받는다", async () => {
+    const repo = new InMemoryChatRepo();
+    const sameMoment = new Date("2026-07-20T10:00:00.000Z");
+    for (let i = 0; i < 5; i++) {
+      await repo.insertReport({
+        reporterId: `u${i}`,
+        targetType: "user",
+        targetId: `b${i}`,
+        reason: `동시 ${i}`,
+        createdAt: sameMoment,
+        status: "open",
+      });
+    }
+
+    const seen: string[] = [];
+    let cursor: { createdAt: Date; status: "open"; id: string } | undefined;
+    for (let page = 0; page < 5; page++) {
+      const rows = await repo.listReports({ limit: 2, cursor });
+      if (rows.length === 0) break;
+      seen.push(...rows.map((r) => r._id));
+      const last = rows[rows.length - 1];
+      cursor = { createdAt: last.createdAt, status: "open", id: last._id };
+    }
+
+    expect(seen).toHaveLength(5); // 하나도 건너뛰지 않고
+    expect(new Set(seen).size).toBe(5); // 같은 건을 두 번 주지도 않는다
+  });
 });
 
 describe("mergeReportReasons", () => {

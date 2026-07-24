@@ -64,11 +64,12 @@ const PAGE_SIZE = 20;
  * 목록 요청 URL. after를 주면 그 신고 뒤(더 오래된 쪽)부터 이어 받는다.
  * 정렬이 open 우선 → 최신순이라 커서에는 시각과 상태가 함께 필요하다.
  */
-function reportsUrl(status: ReportStatusFilter, after?: ReportItemView): string {
-  const params = new URLSearchParams({ status, limit: String(PAGE_SIZE) });
+function reportsUrl(status: ReportStatusFilter, after?: ReportItemView, limit = PAGE_SIZE): string {
+  const params = new URLSearchParams({ status, limit: String(limit) });
   if (after) {
     params.set("cursor", after.createdAt);
     params.set("cursorStatus", after.status);
+    params.set("cursorId", after.id);
   }
   return `/api/admin/reports?${params.toString()}`;
 }
@@ -86,10 +87,14 @@ export function ReportList() {
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
 
-  const load = useCallback(async () => {
+  /**
+   * 목록을 처음부터 다시 받는다.
+   * size를 주면 그만큼 받아 온다 — 신고를 처리한 뒤에도 "더 보기"로 펼쳐 둔 만큼 그대로 보이게.
+   */
+  const load = useCallback(async (size: number = PAGE_SIZE) => {
     setLoadError(null);
     try {
-      const res = await fetch(reportsUrl(status));
+      const res = await fetch(reportsUrl(status, undefined, size));
       if (!res.ok) {
         const code = await readErrorCode(res);
         setLoadError(t(ERROR_KEYS[code ?? ""] ?? "failed"));
@@ -97,7 +102,7 @@ export function ReportList() {
       }
       const body = (await res.json()) as { reports: ReportItemView[] };
       setItems(body.reports);
-      setHasMore(body.reports.length === PAGE_SIZE);
+      setHasMore(body.reports.length === size);
     } catch {
       setLoadError(t("failed"));
     } finally {
@@ -133,6 +138,11 @@ export function ReportList() {
     void load();
   }, [load]);
 
+  /** 지금 펼쳐 둔 개수(서버 상한 100 안에서). */
+  function keepSize(): number {
+    return Math.min(Math.max(items.length, PAGE_SIZE), 100);
+  }
+
   async function resolve(id: string, action: "resolve" | "dismiss") {
     if (submitting) return;
     setActionError(null);
@@ -148,8 +158,8 @@ export function ReportList() {
         setActionError(t(ERROR_KEYS[code ?? ""] ?? "failed"));
         return;
       }
-      // 성공 후 목록을 다시 불러 처리된 신고를 현재 필터에서 갱신한다.
-      await load();
+      // 성공 후 목록을 다시 부르되, 펼쳐 둔 만큼 유지한다(처리했다고 첫 장으로 돌아가면 곤란하다).
+      await load(keepSize());
     } catch {
       setActionError(t("failed"));
     } finally {
@@ -168,7 +178,7 @@ export function ReportList() {
         setActionError(t(ERROR_KEYS[code ?? ""] ?? "failed"));
         return;
       }
-      await load();
+      await load(keepSize());
     } catch {
       setActionError(t("failed"));
     } finally {

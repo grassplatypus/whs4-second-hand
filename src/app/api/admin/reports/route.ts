@@ -26,9 +26,12 @@ export const GET = withErrorHandling(async (req: Request) => {
   // "더 보기" 커서 — 마지막으로 받은 신고의 createdAt과 상태(open 우선 정렬을 이어가기 위해).
   const cursorAt = params.get("cursor");
   const cursorStatus = toStatus(params.get("cursorStatus"));
+  const cursorId = params.get("cursorId") ?? undefined;
   if (cursorAt && cursorStatus) {
     const createdAt = new Date(cursorAt);
-    if (!Number.isNaN(createdAt.getTime())) opts.cursor = { createdAt, status: cursorStatus };
+    if (!Number.isNaN(createdAt.getTime())) {
+      opts.cursor = { createdAt, status: cursorStatus, id: cursorId };
+    }
   }
 
   const reports = await listReports(getChatRepo(), prisma, Object.keys(opts).length ? opts : undefined);

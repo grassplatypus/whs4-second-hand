@@ -151,7 +151,7 @@ export function scanSensitive(text: string): SensitiveScan {
       spans.push({ start: run.start, end: run.end, kind: "phone", evasive: run.evasive, digits: run.digits });
     } else if (looksLikeAccount(run.digits)) {
       spans.push({ start: run.start, end: run.end, kind: "account", evasive: run.evasive, digits: run.digits });
-    } else if (bankMentioned && run.digits.length >= 8) {
+    } else if (bankMentioned && run.digits.length >= 8 && run.digits.length <= 16) {
       // 은행 이름이 함께 적혔다면 자릿수가 조금 짧아도 계좌로 본다.
       spans.push({ start: run.start, end: run.end, kind: "account", evasive: run.evasive, digits: run.digits });
     }

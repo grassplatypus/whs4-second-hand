@@ -313,6 +313,16 @@ test("연락처·계좌 탐지, 사기 이력 확인, 읽음·안 읽은 수, �
     });
     expect(unrelated.status()).toBe(400);
 
+    // 내가 스스로 적어 넣은 번호도 안 된다 — 그러지 않으면 남의 번호를 마음대로 조회할 수 있다.
+    const planted = await buyerCtx.request.post(`/api/chat/conversations/${conversationId}/messages`, {
+      data: { kind: "text", text: "국민 220-555-123456 이 번호 맞나요?" },
+    });
+    expect(planted.status()).toBe(201);
+    const selfCheck = await buyerCtx.request.post("/api/chat/fraud-check", {
+      data: { conversationId, value: "220555123456" },
+    });
+    expect(selfCheck.status()).toBe(400);
+
     // 참여자가 아니면 확인 자체가 안 된다.
     const outsider = await thirdCtx.request.post("/api/chat/fraud-check", {
       data: { conversationId, value: "110-234-567890" },
