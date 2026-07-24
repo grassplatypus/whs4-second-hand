@@ -321,7 +321,9 @@ export function ProductDetail({ product, isOwner }: { product: ProductDetailView
             </form>
           )}
 
-          {!composingEscrow ? (
+          {/* 판매중일 때만 안전거래 요청 — 예약중/판매완료면 서비스가 409라 버튼을 숨긴다. */}
+          {status === "SELLING" &&
+            (!composingEscrow ? (
             <button
               type="button"
               onClick={() => setComposingEscrow(true)}
@@ -361,7 +363,7 @@ export function ProductDetail({ product, isOwner }: { product: ProductDetailView
                 </button>
               </div>
             </form>
-          )}
+          ))}
         </div>
       )}
 

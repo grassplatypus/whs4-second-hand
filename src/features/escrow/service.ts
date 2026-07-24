@@ -178,7 +178,8 @@ export async function confirmReceipt(db: EscrowDb, buyerId: string, id: string):
       data: { status: "RELEASED", releasedAt: new Date() },
     });
     if (n.count !== 1) throw new AppError("INVALID_TRANSITION", "지금은 수령확인할 수 없어요.", 409);
-    await tx.product.updateMany({ where: { id: e.productId }, data: { status: "SOLD" } });
+    // 방어적: 상품 상태도 RESERVED일 때만 SOLD로(에스크로 가드가 이미 권위지만 자기방어).
+    await tx.product.updateMany({ where: { id: e.productId, status: "RESERVED", deletedAt: null }, data: { status: "SOLD" } });
     await tx.escrowEvent.create({ data: { escrowId: id, actorId: buyerId, from: "FUNDED", to: "RELEASED", amount: e.amount } });
   });
 }
@@ -198,7 +199,7 @@ export async function refundEscrow(db: EscrowDb, sellerId: string, id: string): 
       data: { status: "REFUNDED", refundedAt: new Date() },
     });
     if (n.count !== 1) throw new AppError("INVALID_TRANSITION", "지금은 반환할 수 없어요.", 409);
-    await tx.product.updateMany({ where: { id: e.productId }, data: { status: "SELLING" } });
+    await tx.product.updateMany({ where: { id: e.productId, status: "RESERVED", deletedAt: null }, data: { status: "SELLING" } });
     await tx.escrowEvent.create({ data: { escrowId: id, actorId: sellerId, from: "FUNDED", to: "REFUNDED", amount: e.amount } });
   });
 }
@@ -252,7 +253,8 @@ export async function resolveDispute(
   await db.$transaction(async (tx) => {
     const n = await tx.escrow.updateMany({ where: { id, status: "DISPUTED" }, data: { status: next, ...stamp } });
     if (n.count !== 1) throw new AppError("INVALID_TRANSITION", "지금은 조정할 수 없어요.", 409);
-    await tx.product.updateMany({ where: { id: e.productId }, data: { status: productStatus } });
+    // 분쟁 거래의 상품은 RESERVED 상태 — 그 경우에만 결정에 맞춰 전이(자기방어).
+    await tx.product.updateMany({ where: { id: e.productId, status: "RESERVED", deletedAt: null }, data: { status: productStatus } });
     await tx.escrowEvent.create({ data: { escrowId: id, actorId: adminId, from: "DISPUTED", to: next, amount: e.amount, note: "관리자 조정" } });
   });
 }
