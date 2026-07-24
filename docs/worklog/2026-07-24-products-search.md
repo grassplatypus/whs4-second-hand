@@ -106,3 +106,13 @@ docker compose exec -T db psql -U app -d app -c 'SELECT "lat","lng" FROM "Produc
 - **탈퇴 가드 실규칙(#7 본체)** — `countActiveSales`/`hasRecentSold`는 조회만 제공한다. "몇 건 이상이면 막을지", "recent 기준 며칠인지" 같은 정책과 `withdrawable` 가드 자체의 배선은 #7 스코프.
 - **채팅/거래 실동작(#4), 에스크로(#5), 강제삭제·관리자 상품 조치(#6)** — 설계상 이 서브프로젝트 범위 밖. 상세 페이지의 disabled 채팅 버튼(태스크 6)이 그 경계를 UI로도 명시.
 - **최종 branch 전체 opus 리뷰** — 이 워크로그는 태스크 7(E2E+워크로그)까지의 기록이며, #1/#2 계열 선례처럼 태스크 1~7 전체를 가로지르는 교차 리뷰는 이후 별도 단계.
+
+## 최종 whole-branch 리뷰(opus) → Ready to merge
+
+Critical/Important 0. 검토 중점 전부 조립 확인:
+- **좌표 프라이버시(구조적):** 상품 lat/lng=판매자 거친좌표 스냅샷, `getProduct` seller select=nickname만, 카드/상세 뷰 타입에 lat/lng·seller 필드 없음, `[id]/page`는 sellerId를 isOwner 계산에만 쓰고 미전달. **이미지 EXIF/GPS는 sharp 재인코딩으로 구조적 제거**(withMetadata 미호출)+webp 강제.
+- **SQL 인젝션:** 검색 전 값 Prisma.sql 바인딩(DROP payload가 sql.values에·sql.text에 없음 단언), LIKE ESCAPE, acos LEAST/GREATEST 클램프, decodeCursor 완전 검증(잘못된 커서 400).
+- **소유권+RBAC:** 전 mutating 라우트 requireActiveUser(GUEST401/SUSPENDED403 DB-fresh)+서비스 sellerId 재검증(404전403). 상태 변경은 changeStatus만(PATCH 스키마에 status 없음→우회 불가), SOLD 종착.
+- **path traversal:** media 서빙 null-byte거부→join→resolve→sep봉쇄, 미지 확장자→octet-stream.
+
+이관 Minor(비블로커): ①클라 제공 이미지 경로 무검증 저장(비익스플로잇 — media가 read시 트래버설 차단·webp강제·public, defense-in-depth로 `^products/<uuid>.webp$` 검증 권장) ②`hasRecentSold`가 soldAt 없어 updatedAt 프록시 → **#7이 sold-time 의미(soldAt 컬럼 or SOLD 수정차단) 정의** ③검색 q max 없음(`.max(100)` 권장). 하드닝 티켓.
