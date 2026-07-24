@@ -432,6 +432,7 @@
     "resolve": "Resolve",
     "dismiss": "Dismiss",
     "suspendUser": "Suspend this user",
+    "liftUser": "Lift suspension",
     "reportsEmpty": "No reports match",
     "buyer": "Buyer",
     "seller": "Seller",

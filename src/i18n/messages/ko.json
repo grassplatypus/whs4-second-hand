@@ -432,6 +432,7 @@
     "resolve": "처리",
     "dismiss": "반려",
     "suspendUser": "이 유저 정지",
+    "liftUser": "정지 해제",
     "reportsEmpty": "해당하는 신고가 없어요",
     "buyer": "구매자",
     "seller": "판매자",

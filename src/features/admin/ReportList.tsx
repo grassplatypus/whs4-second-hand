@@ -108,12 +108,12 @@ export function ReportList() {
     }
   }
 
-  async function suspend(targetUserId: string) {
+  async function userAction(targetUserId: string, action: "suspend" | "lift") {
     if (submitting) return;
     setActionError(null);
     setSubmitting(true);
     try {
-      const res = await fetch(`/api/admin/users/${targetUserId}/suspend`, { method: "POST" });
+      const res = await fetch(`/api/admin/users/${targetUserId}/${action}`, { method: "POST" });
       if (!res.ok) {
         const code = await readErrorCode(res);
         setActionError(t(ERROR_KEYS[code ?? ""] ?? "failed"));
@@ -126,6 +126,8 @@ export function ReportList() {
       setSubmitting(false);
     }
   }
+  const suspend = (id: string) => userAction(id, "suspend");
+  const lift = (id: string) => userAction(id, "lift");
 
   function statusLabel(s: string): string {
     if (s === "open" || s === "resolved" || s === "dismissed") return t(`reportStatus.${s}`);
@@ -230,9 +232,14 @@ export function ReportList() {
                     {t("dismiss")}
                   </Button>
                   {r.targetType === "user" && r.targetUserId && (
-                    <Button type="button" variant="danger" onClick={() => void suspend(r.targetUserId!)} disabled={submitting}>
-                      {t("suspendUser")}
-                    </Button>
+                    <>
+                      <Button type="button" variant="danger" onClick={() => void suspend(r.targetUserId!)} disabled={submitting}>
+                        {t("suspendUser")}
+                      </Button>
+                      <Button type="button" variant="secondary" onClick={() => void lift(r.targetUserId!)} disabled={submitting}>
+                        {t("liftUser")}
+                      </Button>
+                    </>
                   )}
                 </div>
               )}

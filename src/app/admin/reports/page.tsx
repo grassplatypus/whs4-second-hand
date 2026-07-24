@@ -6,7 +6,7 @@ export default async function AdminReportsPage() {
   await requireAdminPage();
 
   return (
-    <main className="flex flex-1 flex-col items-center py-12">
+    <main className="flex flex-1 flex-col items-center px-4 py-12">
       <ReportList />
     </main>
   );

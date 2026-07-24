@@ -33,7 +33,7 @@ export default async function ConnectionsPage({
   const initialError = key ? t(key) : undefined;
 
   return (
-    <main className="flex flex-1 flex-col items-center justify-center gap-6 py-12">
+    <main className="flex flex-1 flex-col items-center gap-6 px-4 py-12">
       <h1 className="text-2xl font-semibold">{t("connections")}</h1>
       <ConnectionsManager connected={identities.map((i) => i.provider)} initialError={initialError} />
     </main>
