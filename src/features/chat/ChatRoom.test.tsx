@@ -5,15 +5,15 @@ import { NextIntlClientProvider } from "next-intl";
 import { ChatRoom, type ChatMessageView } from "./ChatRoom";
 import ko from "@/i18n/messages/ko.json";
 
-function renderIt() {
+function renderIt(overrides: Partial<React.ComponentProps<typeof ChatRoom>> = {}) {
   return render(
     <NextIntlClientProvider locale="ko" messages={ko}>
       <ChatRoom
         conversationId="c1"
         currentUserId="buyer-1"
-        otherId="seller-1"
         otherNickname="풀숲여우"
         productId="p1"
+        {...overrides}
       />
     </NextIntlClientProvider>,
   );
@@ -35,10 +35,11 @@ function routedFetch(overrides: Record<string, (init?: RequestInit) => unknown>)
   });
 }
 
+// 서버는 이미 mine을 계산해 내려준다(senderId는 절대 실어 보내지 않는다) — 픽스처도 그 모양을 그대로 따른다.
 const oldMsg: ChatMessageView = {
   _id: "m1",
   conversationId: "c1",
-  senderId: "seller-1",
+  mine: false,
   kind: "text",
   text: "안녕하세요",
   masked: false,
@@ -47,7 +48,7 @@ const oldMsg: ChatMessageView = {
 const newMsg: ChatMessageView = {
   _id: "m2",
   conversationId: "c1",
-  senderId: "buyer-1",
+  mine: true,
   kind: "text",
   text: "***",
   masked: true,
@@ -72,11 +73,63 @@ describe("ChatRoom", () => {
     expect(texts).toEqual(["안녕하세요", "***"]);
   });
 
-  it("displays masked text exactly as delivered — never attempts to un-mask it", async () => {
+  it("shows a loading state while history is being fetched", async () => {
+    let resolveFetch: (v: unknown) => void = () => {};
+    const pending = new Promise((resolve) => {
+      resolveFetch = resolve;
+    });
+    vi.stubGlobal("fetch", vi.fn().mockReturnValue(pending));
+    renderIt();
+
+    expect(screen.getByText(ko.chat.loading)).toBeInTheDocument();
+    resolveFetch({ ok: true, json: async () => ({ messages: [] }) });
+    await waitFor(() => expect(screen.queryByText(ko.chat.loading)).not.toBeInTheDocument());
+  });
+
+  it("displays masked text exactly as delivered — never attempts to un-mask it — and shows a masked badge (#6)", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ messages: [newMsg] }) }));
     renderIt();
 
     expect(await screen.findByText("***")).toBeInTheDocument();
+    expect(screen.getByText(ko.chat.maskedBadge)).toBeInTheDocument();
+  });
+
+  it("aligns bubbles by the server-computed mine flag — mine right/emerald, other's left/zinc with dark-mode text/background classes (G7)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ messages: [newMsg, oldMsg] }) }),
+    );
+    renderIt();
+
+    const mine = await screen.findByText("***");
+    const mineBubble = mine.closest("div")!;
+    expect(mineBubble.className).toContain("bg-emerald-600");
+    expect(mineBubble.closest("li")!.className).toContain("items-end");
+
+    const other = screen.getByText("안녕하세요");
+    const otherBubble = other.closest("div")!;
+    expect(otherBubble.className).toContain("bg-zinc-100");
+    expect(otherBubble.className).toContain("dark:bg-zinc-800");
+    expect(otherBubble.className).toContain("dark:text-zinc-100");
+    expect(otherBubble.closest("li")!.className).toContain("items-start");
+  });
+
+  it("renders an image message with a non-empty, localized alt text (never alt=\"\") (#7/G10)", async () => {
+    const imageMsg: ChatMessageView = {
+      _id: "m3",
+      conversationId: "c1",
+      mine: false,
+      kind: "image",
+      imagePath: "img/1.png",
+      masked: false,
+      createdAt: "2026-01-01T00:02:00.000Z",
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ messages: [imageMsg] }) }));
+    renderIt();
+
+    const img = await screen.findByAltText(ko.chat.imageMessageAlt);
+    expect(img).toBeInTheDocument();
+    expect(img.getAttribute("alt")).not.toBe("");
   });
 
   it("never renders PII (email/phone) anywhere in the room", async () => {
@@ -167,7 +220,7 @@ describe("ChatRoom", () => {
     expect(screen.queryByText("leaky")).not.toBeInTheDocument();
   });
 
-  it("blocks then unblocks the other user, posting targetId each time", async () => {
+  it("blocks then unblocks the other user, posting conversationId each time (never a raw userId) (#5/G8)", async () => {
     const calls: { url: string; body: unknown }[] = [];
     vi.stubGlobal(
       "fetch",
@@ -192,12 +245,22 @@ describe("ChatRoom", () => {
     expect(await screen.findByRole("button", { name: ko.chat.block })).toBeInTheDocument();
 
     expect(calls).toEqual([
-      { url: "/api/chat/block", body: { targetId: "seller-1" } },
-      { url: "/api/chat/unblock", body: { targetId: "seller-1" } },
+      { url: "/api/chat/block", body: { conversationId: "c1" } },
+      { url: "/api/chat/unblock", body: { conversationId: "c1" } },
     ]);
   });
 
-  it("reports the other user with a reason and shows the sent confirmation", async () => {
+  it("seeds the block state from initialBlocked on mount — no need to wait for a failed send to learn we're blocked (#4/G9)", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true, json: async () => ({ messages: [] }) }));
+    renderIt({ initialBlocked: true });
+
+    expect(await screen.findByRole("button", { name: ko.chat.unblock })).toBeInTheDocument();
+    expect(screen.getByText(ko.chat.blockedState)).toBeInTheDocument();
+    expect(screen.getByPlaceholderText(ko.chat.messagePlaceholder)).toBeDisabled();
+    expect(screen.getByRole("button", { name: ko.chat.send })).toBeDisabled();
+  });
+
+  it("reports the other user with a reason, posting conversationId (never a raw userId), and shows the sent confirmation", async () => {
     let reportBody: unknown;
     vi.stubGlobal(
       "fetch",
@@ -222,7 +285,7 @@ describe("ChatRoom", () => {
     await user.click(screen.getByRole("button", { name: ko.chat.reportSubmit }));
 
     expect(await screen.findByText(ko.chat.reportSent)).toBeInTheDocument();
-    expect(reportBody).toEqual({ targetType: "user", targetId: "seller-1", reason: "욕설을 했어요" });
+    expect(reportBody).toEqual({ targetType: "user", conversationId: "c1", reason: "욕설을 했어요" });
   });
 
   it("does not attempt a WS connection when no access token is supplied (REST-only, no socket mock needed)", async () => {

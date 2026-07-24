@@ -102,6 +102,22 @@ describe("GET /api/chat/conversations/[id]/messages", () => {
     expect(res.status).toBe(403);
     expect(await res.json()).toMatchObject({ code: "FORBIDDEN" });
   });
+
+  it("computes mine per-message from the authenticated userId and never leaks senderId to the client", async () => {
+    currentUserFromRefresh.mockResolvedValue({ userId: "buyer-1" });
+    const createdAt = new Date();
+    listMessages.mockResolvedValue([
+      { _id: "m1", conversationId: "c1", senderId: "buyer-1", kind: "text", text: "안녕", masked: false, createdAt },
+      { _id: "m2", conversationId: "c1", senderId: "seller-1", kind: "text", text: "네", masked: false, createdAt },
+    ]);
+    const res = await GET(getReq(`${REFRESH_COOKIE}=tok`), ctx("c1"));
+    const body = (await res.json()) as { messages: Record<string, unknown>[] };
+    expect(body.messages).toEqual([
+      { _id: "m1", conversationId: "c1", kind: "text", text: "안녕", masked: false, createdAt: createdAt.toISOString(), mine: true },
+      { _id: "m2", conversationId: "c1", kind: "text", text: "네", masked: false, createdAt: createdAt.toISOString(), mine: false },
+    ]);
+    expect(JSON.stringify(body.messages)).not.toContain("senderId");
+  });
 });
 
 describe("POST /api/chat/conversations/[id]/messages", () => {
@@ -127,7 +143,7 @@ describe("POST /api/chat/conversations/[id]/messages", () => {
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
-  it("passes the AUTHENTICATED userId as sender, never a body-supplied senderId", async () => {
+  it("passes the AUTHENTICATED userId as sender, never a body-supplied senderId — and the response never carries a raw senderId, only a server-computed mine flag", async () => {
     currentUserFromRefresh.mockResolvedValue({ userId: "real-sender" });
     const delivered = {
       _id: "m2",
@@ -144,7 +160,17 @@ describe("POST /api/chat/conversations/[id]/messages", () => {
       ctx("c1"),
     );
     expect(res.status).toBe(201);
-    expect(await res.json()).toEqual({ message: JSON.parse(JSON.stringify(delivered)) });
+    const json = (await res.json()) as { message: Record<string, unknown> };
+    expect(json.message).toEqual({
+      _id: "m2",
+      conversationId: "c1",
+      kind: "text",
+      text: "hi masked",
+      masked: false,
+      createdAt: delivered.createdAt.toISOString(),
+      mine: true,
+    });
+    expect(json.message).not.toHaveProperty("senderId");
     expect(sendMessage).toHaveBeenCalledWith(getChatRepo(), "real-sender", "c1", {
       kind: "text",
       text: "hi",

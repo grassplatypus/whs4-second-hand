@@ -7,8 +7,11 @@ import {
   listMessages,
   blockUser,
   unblockUser,
+  blockConversationCounterparty,
+  unblockConversationCounterparty,
   reportMessage,
   reportUser,
+  reportConversationCounterparty,
 } from "./service";
 import { InMemoryChatRepo } from "./repo";
 import type { ChatDb } from "./db";
@@ -26,7 +29,7 @@ function fakeDb(overrides: {
     product: {
       findFirst:
         overrides.productFindFirst ??
-        vi.fn().mockResolvedValue({ id: PRODUCT_ID, sellerId: SELLER_ID }),
+        vi.fn().mockResolvedValue({ id: PRODUCT_ID, sellerId: SELLER_ID, title: "상품 제목" }),
     },
     user: {
       findUnique: overrides.userFindUnique ?? vi.fn().mockResolvedValue({ nickname: "닉네임" }),
@@ -285,7 +288,7 @@ describe("listConversations", () => {
     expect(summaries[0]).toEqual({
       conversationId: conversation._id,
       otherNickname: "판매자닉네임",
-      productId: PRODUCT_ID,
+      product: { id: PRODUCT_ID, title: "상품 제목" },
       lastMessageAt: conversation.lastMessageAt,
     });
     const serialized = JSON.stringify(summaries);
@@ -313,6 +316,22 @@ describe("listConversations", () => {
     expect(userFindUnique).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: BUYER_ID } }),
     );
+  });
+
+  it("includes the product title so the list can lead with it, falling back to empty when the product is gone", async () => {
+    const repo = new InMemoryChatRepo();
+    await repo.createConversation({
+      productId: PRODUCT_ID,
+      sellerId: SELLER_ID,
+      buyerId: BUYER_ID,
+      createdAt: new Date(),
+      lastMessageAt: new Date(),
+    });
+    const db = fakeDb({ productFindFirst: vi.fn().mockResolvedValue(null) });
+
+    const summaries = await listConversations(repo, db, BUYER_ID);
+
+    expect(summaries[0].product).toEqual({ id: PRODUCT_ID, title: "" });
   });
 });
 
@@ -381,6 +400,55 @@ describe("blockUser / unblockUser", () => {
 
     await unblockUser(repo, BUYER_ID, SELLER_ID);
     expect(await repo.isBlocked(BUYER_ID, SELLER_ID)).toBe(false);
+  });
+});
+
+describe("blockConversationCounterparty / unblockConversationCounterparty", () => {
+  async function setupConversation(repo: InMemoryChatRepo) {
+    return repo.createConversation({
+      productId: PRODUCT_ID,
+      sellerId: SELLER_ID,
+      buyerId: BUYER_ID,
+      createdAt: new Date(),
+      lastMessageAt: new Date(),
+    });
+  }
+
+  it("resolves the OTHER participant from conversationId and blocks/unblocks them — the client never supplies a raw userId", async () => {
+    const repo = new InMemoryChatRepo();
+    const conversation = await setupConversation(repo);
+
+    await blockConversationCounterparty(repo, BUYER_ID, conversation._id);
+    expect(await repo.isBlocked(BUYER_ID, SELLER_ID)).toBe(true);
+
+    await unblockConversationCounterparty(repo, BUYER_ID, conversation._id);
+    expect(await repo.isBlocked(BUYER_ID, SELLER_ID)).toBe(false);
+  });
+
+  it("works from the seller's side too (resolves buyer as the counterparty)", async () => {
+    const repo = new InMemoryChatRepo();
+    const conversation = await setupConversation(repo);
+
+    await blockConversationCounterparty(repo, SELLER_ID, conversation._id);
+    expect(await repo.isBlocked(SELLER_ID, BUYER_ID)).toBe(true);
+  });
+
+  it("rejects a non-participant (third user) with FORBIDDEN — participant isolation", async () => {
+    const repo = new InMemoryChatRepo();
+    const conversation = await setupConversation(repo);
+
+    await expect(blockConversationCounterparty(repo, OTHER_ID, conversation._id)).rejects.toMatchObject({
+      code: "FORBIDDEN",
+      httpStatus: 403,
+    });
+  });
+
+  it("returns NOT_FOUND for a missing conversation", async () => {
+    const repo = new InMemoryChatRepo();
+    await expect(blockConversationCounterparty(repo, BUYER_ID, "nope")).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      httpStatus: 404,
+    });
   });
 });
 
@@ -490,5 +558,54 @@ describe("reportMessage / reportUser", () => {
         status: "open",
       }),
     );
+  });
+});
+
+describe("reportConversationCounterparty", () => {
+  it("resolves the OTHER participant from conversationId and reports them — the client never supplies a raw userId", async () => {
+    const repo = new InMemoryChatRepo();
+    const conversation = await repo.createConversation({
+      productId: PRODUCT_ID,
+      sellerId: SELLER_ID,
+      buyerId: BUYER_ID,
+      createdAt: new Date(),
+      lastMessageAt: new Date(),
+    });
+    const insertReportSpy = vi.spyOn(repo, "insertReport");
+
+    await reportConversationCounterparty(repo, BUYER_ID, conversation._id, "사기 의심");
+
+    expect(insertReportSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        reporterId: BUYER_ID,
+        targetType: "user",
+        targetId: SELLER_ID,
+        reason: "사기 의심",
+        status: "open",
+      }),
+    );
+  });
+
+  it("rejects a non-participant (third user) with FORBIDDEN — participant isolation", async () => {
+    const repo = new InMemoryChatRepo();
+    const conversation = await repo.createConversation({
+      productId: PRODUCT_ID,
+      sellerId: SELLER_ID,
+      buyerId: BUYER_ID,
+      createdAt: new Date(),
+      lastMessageAt: new Date(),
+    });
+
+    await expect(
+      reportConversationCounterparty(repo, OTHER_ID, conversation._id, "사기 의심"),
+    ).rejects.toMatchObject({ code: "FORBIDDEN", httpStatus: 403 });
+  });
+
+  it("returns NOT_FOUND for a missing conversation", async () => {
+    const repo = new InMemoryChatRepo();
+    await expect(reportConversationCounterparty(repo, BUYER_ID, "nope", "사기 의심")).rejects.toMatchObject({
+      code: "NOT_FOUND",
+      httpStatus: 404,
+    });
   });
 });

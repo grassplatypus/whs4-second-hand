@@ -2,11 +2,25 @@ import { prisma } from "@/features/_shared/prisma";
 import { withErrorHandling, AppError } from "@/features/_shared/error";
 import { requireActiveUser } from "@/features/auth/rbac";
 import { getChatRepo } from "@/features/chat/repo";
-import { listMessages, sendMessage } from "@/features/chat/service";
+import { listMessages, sendMessage, type DeliveredMessage } from "@/features/chat/service";
 
 type RouteCtx = { params: Promise<{ id: string }> };
 
 const VALID_KINDS = new Set(["text", "image"]);
+
+/** 참여자에게 실제로 내려주는 메시지 모양 — 서버가 계산한 mine만 실어 보내고 senderId(상대의 원본 userId 노출 경로)는 뺀다. */
+function toMessageView(message: DeliveredMessage, userId: string) {
+  return {
+    _id: message._id,
+    conversationId: message.conversationId,
+    kind: message.kind,
+    text: message.text,
+    imagePath: message.imagePath,
+    masked: message.masked,
+    createdAt: message.createdAt,
+    mine: message.senderId === userId,
+  };
+}
 
 // 참여자 격리(제3자 403)는 서비스가 conversationId로 확인한다 — 인증된 userId만 넘긴다.
 export const GET = withErrorHandling(async (req: Request, ctx?: unknown) => {
@@ -24,7 +38,7 @@ export const GET = withErrorHandling(async (req: Request, ctx?: unknown) => {
   }
 
   const messages = await listMessages(getChatRepo(), current.userId, id, cursor);
-  return Response.json({ messages });
+  return Response.json({ messages: messages.map((m) => toMessageView(m, current.userId)) });
 });
 
 // 전송자는 항상 인증된 userId — 클라이언트가 body로 다른 senderId를 실어 보낼 수 없다.
@@ -43,5 +57,5 @@ export const POST = withErrorHandling(async (req: Request, ctx?: unknown) => {
     text: typeof text === "string" ? text : undefined,
     imagePath: typeof imagePath === "string" ? imagePath : undefined,
   });
-  return Response.json({ message }, { status: 201 });
+  return Response.json({ message: toMessageView(message, current.userId) }, { status: 201 });
 });
