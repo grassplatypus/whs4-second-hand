@@ -40,6 +40,7 @@ services:
       - media:/app/media
     depends_on:
       db: { condition: service_healthy }
+      mongo: { condition: service_healthy }
     healthcheck:
       # 127.0.0.1 (not localhost): Next standalone binds IPv4 0.0.0.0 only;
       # in-container "localhost" resolves to ::1 (IPv6) → connection refused.
@@ -60,6 +61,7 @@ services:
       - media:/app/media
     depends_on:
       db: { condition: service_healthy }
+      mongo: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:4000/socket.io/?EIO=4&transport=polling"]
       interval: 10s
