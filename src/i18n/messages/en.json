@@ -205,5 +205,32 @@
     "forbidden": "You don't have permission",
     "invalidTransition": "That status change isn't allowed",
     "invalidImage": "Couldn't process that image"
+  },
+  "chat": {
+    "listTitle": "Chat",
+    "empty": "No conversations yet",
+    "roomTitle": "Chat room",
+    "viewProduct": "View item",
+    "messagePlaceholder": "Type a message",
+    "send": "Send",
+    "imageButton": "Send photo",
+    "block": "Block",
+    "unblock": "Unblock",
+    "blockedState": "You've blocked this person",
+    "report": "Report user",
+    "reportReasonPlaceholder": "Enter a reason for reporting",
+    "reportSubmit": "Submit report",
+    "reportSent": "Reported",
+    "cancel": "Cancel",
+    "composeTitle": "Send a first message",
+    "composePlaceholder": "Type your first message",
+    "failed": "Please try again",
+    "blocked": "You can't chat with a blocked user",
+    "selfChat": "You can't chat about your own item",
+    "firstMsgTextOnly": "The first message must be text",
+    "notFound": "Conversation not found",
+    "forbidden": "You don't have permission",
+    "emptyMessage": "Please enter a message",
+    "invalidImage": "Couldn't process that image"
   }
 }
