@@ -31,6 +31,9 @@ export function LoginForm({ oauthError }: { oauthError?: string } = {}) {
       const body = await res.json().catch(() => ({}));
       // 2FA 계정은 세션 없이 챌린지 쿠키만 심어 200을 준다 — twoFactorRequired일 때는 홈이 아니라 챌린지로.
       router.push(body?.twoFactorRequired ? "/login/2fa" : "/");
+      // 루트 레이아웃(navbar)은 서버에서 세션을 읽는다 — refresh 없이 client 네비게이션만 하면
+      // 로그인 상태가 반영되지 않는다(RSC 캐시). 세션이 바뀌었으니 서버 트리를 무효화한다.
+      router.refresh();
     } catch {
       setError(t("failed"));
     } finally {
