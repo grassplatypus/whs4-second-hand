@@ -45,6 +45,7 @@ model User {
   regionCiphertext String? // 동/읍/면 수준 주소만. 상세주소 미수집
   twoFactorMethod  TwoFactorMethod @default(NONE) // 설정·강제는 1a-ext
   totpSecret       String? // AES-GCM 암호화 저장. 구현은 1a-ext
+  phoneVerifiedAt  DateTime? // 전화 인증 완료 시각. 구현은 1b
   consentedAt      DateTime
   deletedAt        DateTime? // soft delete(파기)
   createdAt        DateTime        @default(now())
@@ -52,6 +53,7 @@ model User {
   sessions         Session[]
   identities       AuthIdentity[]
   emailOtps        EmailOtp[]
+  phoneOtps        PhoneOtp[]
 
   @@index([phoneBlindIndex])
 }
@@ -93,6 +95,19 @@ model EmailOtp {
   expiresAt  DateTime
   consumedAt DateTime?
   createdAt  DateTime   @default(now())
+
+  @@index([userId])
+}
+
+model PhoneOtp {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  phoneBlindIndex String
+  codeHash        String
+  expiresAt       DateTime
+  consumedAt      DateTime?
+  createdAt       DateTime  @default(now())
 
   @@index([userId])
 }
