@@ -64,7 +64,8 @@ export async function startEmailOtpSetup(db: AuthDb, userId: string, mailer: Mai
 export async function confirmEmailOtpSetup(db: AuthDb, userId: string, code: string, meta: RequestMeta): Promise<void> {
   const ok = await verifyEmailOtp(db, userId, "SETUP", code);
   if (!ok) throw twoFactorFailed();
-  await db.user.update({ where: { id: userId }, data: { twoFactorMethod: "EMAIL" } });
+  // TOTP에서 EMAIL로 전환하는 경우를 대비해 남아 있을 수 있는 시크릿을 함께 지운다(disableTwoFactor와 대칭).
+  await db.user.update({ where: { id: userId }, data: { twoFactorMethod: "EMAIL", totpSecret: null } });
   await logAuthEvent(db, AUTH_EVENTS.TWO_FACTOR_ENABLED, userId, meta);
 }
 
@@ -132,7 +133,19 @@ export async function completeLoginTwoFactor(
 ): Promise<IssuedSession> {
   void mailer; // 시그니처 일관성을 위해 받되, 코드 검증에는 메일 발송이 필요 없다(재발송은 sendLoginOtp).
   const code = asString((raw as { code?: unknown })?.code);
-  const ok = method === "EMAIL" ? await verifyEmailOtp(db, userId, "LOGIN_2FA", code) : await verifyTotpFor(db, userId, code);
+  // fail-closed: 알려진 두 수단(EMAIL/TOTP) 외의 값은 어떤 시크릿 상태와도 무관하게 즉시 실패 처리한다 —
+  // 오탈자·오래된 값·조작된 값이 TOTP 검증으로 새는 다운그레이드 경로를 막는다.
+  let ok: boolean;
+  switch (method) {
+    case "EMAIL":
+      ok = await verifyEmailOtp(db, userId, "LOGIN_2FA", code);
+      break;
+    case "TOTP":
+      ok = await verifyTotpFor(db, userId, code);
+      break;
+    default:
+      ok = false;
+  }
   if (!ok) {
     await logAuthEvent(db, AUTH_EVENTS.TWO_FACTOR_FAIL, userId, meta);
     throw twoFactorFailed();
@@ -144,7 +157,7 @@ export async function completeLoginTwoFactor(
 
 /** 로그인 2FA 챌린지 중 이메일 코드 재발송. */
 export async function sendLoginOtp(db: AuthDb, userId: string, meta: RequestMeta): Promise<void> {
-  void meta; // 발송 자체의 감사(OTP_SENT)는 issueEmailOtp가 남긴다.
   const accountEmail = await accountEmailOf(db, userId);
-  await issueEmailOtp(db, userId, "LOGIN_2FA", getMailer(), accountEmail);
+  // 발송 자체의 감사(OTP_SENT)는 issueEmailOtp가 남긴다 — 호출자의 ip/ua를 그대로 싣는다.
+  await issueEmailOtp(db, userId, "LOGIN_2FA", getMailer(), accountEmail, meta);
 }

@@ -1,7 +1,7 @@
 import bcrypt from "bcryptjs";
 import { randomInt } from "node:crypto";
 import { AppError } from "@/features/_shared/error";
-import { AUTH_EVENTS, logAuthEvent } from "../audit";
+import { AUTH_EVENTS, logAuthEvent, type RequestMeta } from "../audit";
 import type { AuthDb } from "../db";
 import type { OtpPurpose } from "@prisma/client";
 import type { Mailer } from "./mailer";
@@ -19,6 +19,7 @@ export async function issueEmailOtp(
   purpose: OtpPurpose,
   mailer: Mailer,
   accountEmail: string,
+  meta: RequestMeta = { ip: null, ua: null },
 ): Promise<void> {
   const recent = await db.emailOtp.findFirst({
     where: { userId, purpose, consumedAt: null, expiresAt: { gt: new Date() } },
@@ -46,7 +47,7 @@ export async function issueEmailOtp(
   });
   // 코드 평문은 메일 본문에만. 로그·감사 금지.
   await mailer.send(accountEmail, "인증 코드", `인증 코드: ${code} (5분 안에 입력해 주세요)`);
-  await logAuthEvent(db, AUTH_EVENTS.OTP_SENT, userId, { ip: null, ua: null });
+  await logAuthEvent(db, AUTH_EVENTS.OTP_SENT, userId, meta);
 }
 
 export async function verifyEmailOtp(

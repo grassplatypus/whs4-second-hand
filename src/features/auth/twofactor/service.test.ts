@@ -142,7 +142,10 @@ describe("confirmEmailOtpSetup", () => {
 
     await confirmEmailOtpSetup(db, USER_ID, "123456", noMeta);
 
-    expect(update).toHaveBeenCalledWith({ where: { id: USER_ID }, data: { twoFactorMethod: "EMAIL" } });
+    expect(update).toHaveBeenCalledWith({
+      where: { id: USER_ID },
+      data: { twoFactorMethod: "EMAIL", totpSecret: null },
+    });
     expect(auditEvents(db)).toEqual(["TWO_FACTOR_ENABLED"]);
   });
 
@@ -332,6 +335,37 @@ describe("completeLoginTwoFactor", () => {
     ).rejects.toMatchObject({ code: "TWO_FACTOR_FAILED" });
     expect(sessionCreate).not.toHaveBeenCalled();
   });
+
+  it("rejects an unknown/garbage method fail-closed, without issuing a session, and audits TWO_FACTOR_FAIL", async () => {
+    const findUnique = vi.fn().mockResolvedValue({ totpSecret: null });
+    const emailFindMany = vi.fn().mockResolvedValue([]);
+    const sessionCreate = vi.fn();
+    const db = fakeDb({ findUnique, emailFindMany, sessionCreate });
+
+    await expect(
+      completeLoginTwoFactor(db, USER_ID, "SMS", { code: "123456" }, new MemoryMailer(), noMeta),
+    ).rejects.toMatchObject({ code: "TWO_FACTOR_FAILED", httpStatus: 401 });
+    expect(sessionCreate).not.toHaveBeenCalled();
+    expect(auditEvents(db)).toEqual(["TWO_FACTOR_FAIL"]);
+
+    await expect(
+      completeLoginTwoFactor(db, USER_ID, "", { code: "123456" }, new MemoryMailer(), noMeta),
+    ).rejects.toMatchObject({ code: "TWO_FACTOR_FAILED" });
+    expect(sessionCreate).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unknown method even when a valid (stale) TOTP secret and matching code exist — no downgrade fallthrough", async () => {
+    const secret = generateTotpSecret();
+    const findUnique = vi.fn().mockResolvedValue({ totpSecret: encryptPII(secret) });
+    const sessionCreate = vi.fn();
+    const db = fakeDb({ findUnique, sessionCreate });
+
+    await expect(
+      completeLoginTwoFactor(db, USER_ID, "SMS", { code: generateSync({ secret }) }, new MemoryMailer(), noMeta),
+    ).rejects.toMatchObject({ code: "TWO_FACTOR_FAILED", httpStatus: 401 });
+    expect(sessionCreate).not.toHaveBeenCalled();
+    expect(auditEvents(db)).toEqual(["TWO_FACTOR_FAIL"]);
+  });
 });
 
 describe("sendLoginOtp", () => {
@@ -354,5 +388,19 @@ describe("sendLoginOtp", () => {
   it("rejects an unknown user", async () => {
     const db = fakeDb({ findUnique: vi.fn().mockResolvedValue(null) });
     await expect(sendLoginOtp(db, USER_ID, noMeta)).rejects.toMatchObject({ code: "AUTH_FAILED" });
+  });
+
+  it("carries the caller's meta (ip/ua) into the OTP_SENT audit row", async () => {
+    const findUnique = vi.fn().mockResolvedValue({ emailCiphertext: encryptPII(ACCOUNT_EMAIL) });
+    const auditCreate = vi.fn().mockResolvedValue({});
+    const db = fakeDb({ findUnique, auditCreate });
+    const meta = { ip: "198.51.100.9", ua: "resend-agent/2.0" };
+
+    await sendLoginOtp(db, USER_ID, meta);
+
+    const auditData = auditCreate.mock.calls[0][0].data;
+    expect(auditData.event).toBe("OTP_SENT");
+    expect(auditData.ip).toBe("198.51.100.9");
+    expect(auditData.ua).toBe("resend-agent/2.0");
   });
 });

@@ -94,6 +94,23 @@ describe("issueEmailOtp", () => {
     expect(auditData.userId).toBe(USER_ID);
     expect(JSON.stringify(auditData)).not.toContain(ACCOUNT_EMAIL);
   });
+
+  it("defaults the OTP_SENT audit's ip/ua to null when no meta is passed", async () => {
+    const db = fakeDb({});
+    await issueEmailOtp(db, USER_ID, PURPOSE, new MemoryMailer(), ACCOUNT_EMAIL);
+    const auditData = (db.authAuditLog.create as ReturnType<typeof vi.fn>).mock.calls[0][0].data;
+    expect(auditData.ip).toBeNull();
+    expect(auditData.ua).toBeNull();
+  });
+
+  it("carries the caller's meta (ip/ua) into the OTP_SENT audit row when provided", async () => {
+    const db = fakeDb({});
+    const meta = { ip: "203.0.113.7", ua: "test-agent/1.0" };
+    await issueEmailOtp(db, USER_ID, PURPOSE, new MemoryMailer(), ACCOUNT_EMAIL, meta);
+    const auditData = (db.authAuditLog.create as ReturnType<typeof vi.fn>).mock.calls[0][0].data;
+    expect(auditData.ip).toBe("203.0.113.7");
+    expect(auditData.ua).toBe("test-agent/1.0");
+  });
 });
 
 describe("verifyEmailOtp", () => {
