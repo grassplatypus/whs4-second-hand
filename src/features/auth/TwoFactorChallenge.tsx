@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
+import { Field, Input, Button } from "@/features/shell/ui";
 
 /**
  * 로그인 2FA 챌린지. challenge 쿠키(HttpOnly)는 서버가 이미 심어둔 상태라고 가정한다 —
@@ -58,14 +59,13 @@ export function TwoFactorChallenge() {
   }
 
   return (
-    <div className="flex w-80 flex-col gap-3">
-      <p>{t("challengeDescription")}</p>
+    <div className="flex flex-col gap-4">
+      <p className="text-sm text-zinc-500 dark:text-zinc-400">{t("challengeDescription")}</p>
 
       <form onSubmit={submit} className="flex flex-col gap-3" noValidate>
-        <label className="flex flex-col gap-1">
-          {t("code")}
-          <input value={code} onChange={(e) => setCode(e.target.value)} className="rounded border px-2 py-1" />
-        </label>
+        <Field label={t("code")}>
+          <Input value={code} onChange={(e) => setCode(e.target.value)} />
+        </Field>
 
         {error && (
           <p role="alert" className="text-sm text-red-600">
@@ -73,20 +73,16 @@ export function TwoFactorChallenge() {
           </p>
         )}
 
-        <button
-          type="submit"
-          disabled={submitting}
-          className="rounded bg-black px-3 py-2 text-white disabled:opacity-50"
-        >
+        <Button type="submit" disabled={submitting} className="w-full">
           {t("confirm")}
-        </button>
+        </Button>
       </form>
 
-      <button type="button" onClick={resend} className="text-sm text-blue-600">
+      <Button type="button" variant="ghost" onClick={resend} className="self-start px-0">
         {t("resend")}
-      </button>
+      </Button>
       {resent && (
-        <p aria-live="polite" className="text-sm text-green-700">
+        <p aria-live="polite" className="text-sm text-emerald-600">
           {t("resendDone")}
         </p>
       )}

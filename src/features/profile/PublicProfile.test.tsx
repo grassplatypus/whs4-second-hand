@@ -10,6 +10,8 @@ const profile: PublicProfileView = {
   region: "서울시 강남구 역삼동",
   phoneVerified: true,
   createdAt: "2025-01-01T00:00:00.000Z",
+  active: [],
+  sold: [],
 };
 
 function renderIt(p: PublicProfileView = profile) {
@@ -19,6 +21,16 @@ function renderIt(p: PublicProfileView = profile) {
     </NextIntlClientProvider>,
   );
 }
+
+const product = {
+  id: "p1",
+  title: "낡은 자전거",
+  price: 30000,
+  category: "SPORTS",
+  status: "SELLING",
+  thumbnail: null,
+  regionLabel: "서울시 강남구",
+};
 
 describe("PublicProfile — safe subset only", () => {
   it("renders nickname, bio, region, phone-verified badge, and joined date", () => {
@@ -37,6 +49,8 @@ describe("PublicProfile — safe subset only", () => {
       region: null,
       phoneVerified: false,
       createdAt: "2025-06-15T00:00:00.000Z",
+      active: [],
+      sold: [],
     });
     expect(screen.getByText(ko.profile.bioEmpty)).toBeInTheDocument();
     expect(screen.getByText(ko.profile.noRegion)).toBeInTheDocument();
@@ -48,5 +62,26 @@ describe("PublicProfile — safe subset only", () => {
     expect(html).not.toMatch(/@.+\..+/); // 이메일 형태
     expect(html).not.toMatch(/\d{2,3}-\d{3,4}-\d{4}/); // 전화번호 형태
     expect(html).not.toMatch(/lat|lng|latitude|longitude/i);
+  });
+
+  it("shows '—' instead of crashing or leaking a raw invalid string when createdAt can't be parsed", () => {
+    renderIt({ ...profile, createdAt: "not-a-real-date" });
+    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.queryByText("not-a-real-date")).not.toBeInTheDocument();
+  });
+
+  it("renders active (selling/reserved) listings as product cards linking to their detail pages", () => {
+    renderIt({ ...profile, active: [product], sold: [] });
+    expect(screen.getByText(ko.profile.activeListings)).toBeInTheDocument();
+    expect(screen.getByText("낡은 자전거")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /낡은 자전거/ })).toHaveAttribute("href", "/products/p1");
+    expect(screen.getByText(ko.profile.noSoldListings)).toBeInTheDocument();
+  });
+
+  it("renders sold listings separately, and shows the empty state when there are none", () => {
+    renderIt({ ...profile, active: [], sold: [{ ...product, id: "p2", status: "SOLD" }] });
+    expect(screen.getByText(ko.profile.noActiveListings)).toBeInTheDocument();
+    expect(screen.getByText(ko.profile.soldListings)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /낡은 자전거/ })).toHaveAttribute("href", "/products/p2");
   });
 });

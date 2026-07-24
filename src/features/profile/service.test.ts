@@ -1,9 +1,8 @@
 // @vitest-environment node
 import { describe, it, expect, vi } from "vitest";
-import { getMyProfile, getPublicProfile, updateBio, bioSchema } from "./service";
+import { getMyProfile, getPublicProfile, getPublicProfileWithProducts, updateBio, bioSchema } from "./service";
 import { encryptPII } from "@/features/_shared/crypto";
 import { AppError } from "@/features/_shared/error";
-import type { AuthDb } from "@/features/auth/db";
 
 const USER_ID = "u1";
 const EMAIL_PLAINTEXT = "user@example.com";
@@ -15,6 +14,7 @@ function fakeDb(overrides: {
   userUpdate?: ReturnType<typeof vi.fn>;
   authIdentityFindMany?: ReturnType<typeof vi.fn>;
   authAuditLogCreate?: ReturnType<typeof vi.fn>;
+  productFindMany?: ReturnType<typeof vi.fn>;
 }) {
   return {
     user: {
@@ -25,7 +25,11 @@ function fakeDb(overrides: {
       findMany: overrides.authIdentityFindMany ?? vi.fn().mockResolvedValue([]),
     },
     authAuditLog: { create: overrides.authAuditLogCreate ?? vi.fn().mockResolvedValue({}) },
-  } as unknown as AuthDb;
+    product: {
+      findMany: overrides.productFindMany ?? vi.fn().mockResolvedValue([]),
+    },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any;
 }
 
 // A full "leaky" row — as if a careless implementation had spread the whole User row
@@ -99,6 +103,83 @@ describe("getPublicProfile", () => {
     });
     const result = await getPublicProfile(db, "풀숲");
     expect(result.region).toBeNull();
+  });
+});
+
+describe("getPublicProfileWithProducts", () => {
+  function productRow(overrides: Record<string, unknown> = {}) {
+    return {
+      id: "p1",
+      title: "낡은 자전거",
+      price: 30000,
+      category: "SPORTS",
+      status: "SELLING",
+      regionLabel: "서울특별시 강남구",
+      createdAt: new Date("2025-02-01T00:00:00Z"),
+      images: [{ path: "img/bike.png" }],
+      ...overrides,
+    };
+  }
+
+  it("splits the seller's non-deleted products into active (SELLING/RESERVED) and sold (SOLD)", async () => {
+    const userFindUnique = vi.fn().mockResolvedValue(fullUserRow());
+    const productFindMany = vi.fn().mockResolvedValue([
+      productRow({ id: "p1", status: "SELLING" }),
+      productRow({ id: "p2", status: "RESERVED" }),
+      productRow({ id: "p3", status: "SOLD" }),
+    ]);
+    const db = fakeDb({ userFindUnique, productFindMany });
+
+    const result = await getPublicProfileWithProducts(db, "풀숲");
+
+    expect(result.profile).toEqual({
+      nickname: "풀숲",
+      bio: "안녕하세요",
+      region: REGION_PLAINTEXT,
+      phoneVerified: true,
+      createdAt: new Date("2025-01-01T00:00:00Z"),
+    });
+    expect(result.active.map((p) => p.id).sort()).toEqual(["p1", "p2"]);
+    expect(result.sold.map((p) => p.id)).toEqual(["p3"]);
+    expect(productFindMany.mock.calls[0][0].where).toEqual({ sellerId: USER_ID, deletedAt: null });
+  });
+
+  it("maps the first image (by order) to thumbnail, and null when there are no images", async () => {
+    const userFindUnique = vi.fn().mockResolvedValue(fullUserRow());
+    const productFindMany = vi.fn().mockResolvedValue([
+      productRow({ id: "p1", images: [{ path: "img/bike.png" }] }),
+      productRow({ id: "p2", images: [] }),
+    ]);
+    const db = fakeDb({ userFindUnique, productFindMany });
+
+    const result = await getPublicProfileWithProducts(db, "풀숲");
+
+    expect(result.active.find((p) => p.id === "p1")?.thumbnail).toBe("img/bike.png");
+    expect(result.active.find((p) => p.id === "p2")?.thumbnail).toBeNull();
+  });
+
+  it("never leaks seller PII (email/phone/coordinates) in the product cards or profile", async () => {
+    const userFindUnique = vi.fn().mockResolvedValue(fullUserRow());
+    const productFindMany = vi.fn().mockResolvedValue([productRow()]);
+    const db = fakeDb({ userFindUnique, productFindMany });
+
+    const result = await getPublicProfileWithProducts(db, "풀숲");
+    const json = JSON.stringify(result);
+    expect(json).not.toContain(EMAIL_PLAINTEXT);
+    expect(json).not.toContain(PHONE_PLAINTEXT);
+    expect(json).not.toContain("sellerId");
+  });
+
+  it("throws a 404 AppError when the user does not exist", async () => {
+    const db = fakeDb({ userFindUnique: vi.fn().mockResolvedValue(null) });
+    await expect(getPublicProfileWithProducts(db, "없는닉네임")).rejects.toMatchObject({ httpStatus: 404 });
+  });
+
+  it("throws a 404 AppError for a soft-deleted user", async () => {
+    const db = fakeDb({
+      userFindUnique: vi.fn().mockResolvedValue(fullUserRow({ deletedAt: new Date() })),
+    });
+    await expect(getPublicProfileWithProducts(db, "풀숲")).rejects.toMatchObject({ code: "NOT_FOUND", httpStatus: 404 });
   });
 });
 

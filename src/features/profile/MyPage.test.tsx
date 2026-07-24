@@ -38,23 +38,37 @@ beforeEach(() => refresh.mockClear());
 afterEach(() => vi.unstubAllGlobals());
 
 describe("MyPage — profile display", () => {
-  it("shows nickname, bio, badges, connected providers, and account-management link", () => {
+  it("shows a big avatar, nickname header, bio, badges, connected-account display names, and manage links", () => {
     renderIt();
-    expect(screen.getByText("풀숲여우")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "풀숲여우" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "풀숲여우" })).toBeInTheDocument(); // Avatar
     expect(screen.getByText("안녕하세요")).toBeInTheDocument();
     expect(screen.getByText("서울시 강남구 역삼동")).toBeInTheDocument();
     expect(screen.getByText(ko.profile.phoneVerified)).toBeInTheDocument();
     expect(screen.getByText(ko.profile.twoFactorOn)).toBeInTheDocument();
     expect(screen.getByText(ko.profile.hasPassword)).toBeInTheDocument();
-    expect(screen.getByText("GOOGLE")).toBeInTheDocument();
+
+    // 연결된 계정은 표시용 이름으로 보이고, 원문 enum("GOOGLE")은 어디에도 없다.
+    expect(screen.getByText(ko.auth.oauth.providerGoogle)).toBeInTheDocument();
+    expect(screen.queryByText("GOOGLE")).not.toBeInTheDocument();
+
     expect(screen.getByRole("link", { name: ko.profile.viewPublicProfile })).toHaveAttribute(
       "href",
-      "/u/풀숲여우",
+      "/u/%ED%92%80%EC%88%B2%EC%97%AC%EC%9A%B0",
     );
     expect(screen.getByRole("link", { name: ko.profile.accountManagement })).toHaveAttribute(
       "href",
       "#account-management",
     );
+
+    // G4: 상태만 보여주고 끝나던 2FA/연동/휴대폰/동네에 관리 링크가 붙는다.
+    expect(screen.getByRole("link", { name: ko.profile.manageSecurity })).toHaveAttribute("href", "/settings/security");
+    expect(screen.getByRole("link", { name: ko.profile.manageConnections })).toHaveAttribute(
+      "href",
+      "/settings/connections",
+    );
+    expect(screen.getByRole("link", { name: ko.profile.managePhone })).toHaveAttribute("href", "/settings/phone");
+    expect(screen.getByRole("link", { name: ko.profile.manageLocation })).toHaveAttribute("href", "/settings/location");
   });
 
   it("falls back to empty-state labels when there's no bio/region/password/connections", () => {

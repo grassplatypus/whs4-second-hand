@@ -28,6 +28,13 @@ describe("ConnectionsManager", () => {
     expect(screen.getByRole("link", { name: "카카오로 계속하기" })).toHaveAttribute("href", "/api/auth/oauth/kakao/start?link=1");
   });
 
+  it("shows the provider display name (not the raw enum or the login CTA text) on a linked row", () => {
+    renderIt(["GOOGLE"]);
+    expect(screen.getByText(ko.auth.oauth.providerGoogle)).toBeInTheDocument();
+    expect(screen.queryByText("GOOGLE")).not.toBeInTheDocument();
+    expect(screen.queryByText(ko.auth.oauth.google)).not.toBeInTheDocument();
+  });
+
   it("posts to the unlink endpoint on disconnect", async () => {
     const user = userEvent.setup();
     renderIt(["GOOGLE", "KAKAO"]);

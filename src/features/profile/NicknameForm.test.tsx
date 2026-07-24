@@ -26,8 +26,8 @@ function jsonFail(status: number, code: string) {
 beforeEach(() => refresh.mockClear());
 afterEach(() => vi.unstubAllGlobals());
 
-describe("NicknameForm", () => {
-  it("posts { nickname } to /api/profile/nickname", async () => {
+describe("NicknameForm — no step-up (low sensitivity)", () => {
+  it("posts { nickname } to /api/profile/nickname and succeeds without any step-up round trip", async () => {
     const fetchMock = vi.fn().mockResolvedValue(jsonOk({ ok: true }));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
@@ -39,6 +39,7 @@ describe("NicknameForm", () => {
     await user.click(screen.getByRole("button", { name: ko.account.submitNickname }));
 
     await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1);
       const call = fetchMock.mock.calls[0];
       expect(call[0]).toBe("/api/profile/nickname");
       expect(call[1].method).toBe("POST");
@@ -46,6 +47,7 @@ describe("NicknameForm", () => {
     });
     expect(await screen.findByText(ko.account.nicknameSaved)).toBeInTheDocument();
     expect(refresh).toHaveBeenCalled();
+    expect(screen.queryByRole("heading", { name: ko.auth.twofactor.stepUpTitle })).not.toBeInTheDocument();
   });
 
   it("maps NICKNAME_TAKEN to the catalog error, never the server message", async () => {
@@ -58,25 +60,15 @@ describe("NicknameForm", () => {
     expect(screen.queryByText("leaky server text")).not.toBeInTheDocument();
   });
 
-  it("shows StepUpPrompt on 401 STEP_UP_REQUIRED, then retries after reauth succeeds", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(jsonFail(401, "STEP_UP_REQUIRED"))
-      .mockResolvedValueOnce(jsonOk({ ok: true }))
-      .mockResolvedValueOnce(jsonOk({ ok: true }));
-    vi.stubGlobal("fetch", fetchMock);
+  it("never shows StepUpPrompt even on an unrelated failure", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(jsonFail(401, "STEP_UP_REQUIRED")));
     const user = userEvent.setup();
     renderIt();
-
     await user.click(screen.getByRole("button", { name: ko.account.submitNickname }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(ko.account.stepUpRequired);
-    expect(fetchMock.mock.calls[0][0]).toBe("/api/profile/nickname");
 
-    await user.type(screen.getByLabelText(ko.auth.twofactor.stepUpPassword), "hunter2hunter2");
-    await user.click(screen.getByRole("button", { name: ko.auth.twofactor.stepUpSubmit }));
-
-    await waitFor(() => expect(fetchMock.mock.calls[1][0]).toBe("/api/auth/step-up"));
-    await waitFor(() => expect(fetchMock.mock.calls[2][0]).toBe("/api/profile/nickname"));
-    expect(await screen.findByText(ko.account.nicknameSaved)).toBeInTheDocument();
+    // 라우트가 더 이상 STEP_UP_REQUIRED를 주지 않지만, 혹시 줘도 폼은 그걸 특별 취급하지 않고
+    // 일반 실패 문구로 보여준다(StepUpPrompt를 띄우지 않는다).
+    expect(await screen.findByRole("alert")).toHaveTextContent(ko.account.failed);
+    expect(screen.queryByRole("heading", { name: ko.auth.twofactor.stepUpTitle })).not.toBeInTheDocument();
   });
 });

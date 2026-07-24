@@ -23,7 +23,7 @@ async function fillValidForm(user: ReturnType<typeof userEvent.setup>) {
   await user.type(screen.getByLabelText("닉네임"), "풀숲");
   await user.type(screen.getByLabelText("비밀번호"), "hunter2hunter2");
   await user.type(screen.getByLabelText("비밀번호 확인"), "hunter2hunter2");
-  await user.click(screen.getByLabelText("개인정보 수집·이용에 동의해요"));
+  await user.click(screen.getByLabelText("개인정보 수집·이용 및 이용약관에 동의해요"));
 }
 
 beforeEach(() => {
@@ -38,6 +38,12 @@ afterEach(() => {
 });
 
 describe("SignupForm", () => {
+  it("links the terms word to /terms and links to /login for existing accounts", () => {
+    renderForm();
+    expect(screen.getByRole("link", { name: "이용약관" })).toHaveAttribute("href", "/terms");
+    expect(screen.getByRole("link", { name: "로그인" })).toHaveAttribute("href", "/login");
+  });
+
   it("posts the form to /api/auth/register", async () => {
     const user = userEvent.setup();
     renderForm();
@@ -73,7 +79,7 @@ describe("SignupForm", () => {
     const user = userEvent.setup();
     renderForm();
     await fillValidForm(user);
-    await user.click(screen.getByLabelText("개인정보 수집·이용에 동의해요")); // 다시 눌러 해제
+    await user.click(screen.getByLabelText("개인정보 수집·이용 및 이용약관에 동의해요")); // 다시 눌러 해제
     await user.click(screen.getByRole("button", { name: "가입하기" }));
 
     expect(await screen.findByText("동의가 필요해요")).toBeInTheDocument();

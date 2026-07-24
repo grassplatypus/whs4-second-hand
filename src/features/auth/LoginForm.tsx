@@ -2,7 +2,9 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useTranslations } from "next-intl";
+import { Field, Input, PasswordInput, Button } from "@/features/shell/ui";
 import { SocialButtons } from "./SocialButtons";
 
 export function LoginForm({ oauthError }: { oauthError?: string } = {}) {
@@ -43,38 +45,37 @@ export function LoginForm({ oauthError }: { oauthError?: string } = {}) {
 
   return (
     <>
-      <form onSubmit={submit} className="flex w-80 flex-col gap-3" noValidate>
-        <label className="flex flex-col gap-1">
-          {t("email")}
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            className="rounded border px-2 py-1"
-          />
-        </label>
+      <form onSubmit={submit} className="flex flex-col gap-4" noValidate>
+        <Field label={t("email")}>
+          <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+        </Field>
 
-        <label className="flex flex-col gap-1">
-          {t("password")}
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            className="rounded border px-2 py-1"
-          />
-        </label>
+        <Field label={t("password")}>
+          <PasswordInput value={password} onChange={(e) => setPassword(e.target.value)} />
+        </Field>
 
-        {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+        {error && (
+          <p role="alert" className="text-sm text-red-600">
+            {error}
+          </p>
+        )}
 
-        <button type="submit" disabled={submitting} className="rounded bg-black px-3 py-2 text-white disabled:opacity-50">
+        <Button type="submit" disabled={submitting} className="w-full">
           {t("submitLogin")}
-        </button>
+        </Button>
       </form>
 
-      <div className="flex w-80 items-center gap-2 text-sm text-zinc-400">
-        <span className="h-px flex-1 bg-zinc-200" />
+      <p className="text-center text-sm text-zinc-500 dark:text-zinc-400">
+        {t("noAccount")}{" "}
+        <Link href="/signup" className="font-medium text-emerald-600 hover:underline dark:text-emerald-400">
+          {t("goSignup")}
+        </Link>
+      </p>
+
+      <div className="flex items-center gap-2 text-sm text-zinc-400">
+        <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
         {t("oauth.or")}
-        <span className="h-px flex-1 bg-zinc-200" />
+        <span className="h-px flex-1 bg-zinc-200 dark:bg-zinc-800" />
       </div>
       <SocialButtons />
     </>
